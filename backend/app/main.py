@@ -62,7 +62,7 @@ for protected_router in [plants_router, activities_router, red_tags_router, audi
     app.include_router(protected_router, prefix=settings.API_V1_PREFIX, dependencies=[Depends(enforce_access)])
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     frontend = Path(os.getenv("FRONTEND_DIST", ""))
     if (frontend / "index.html").is_file():
@@ -78,7 +78,7 @@ async def root():
 async def health_check():
     async with AsyncSessionLocal() as db:
         await db.execute(text("SELECT 1"))
-    return {"status": "healthy", "workspace": "sample" if os.getenv("LOCAL_DEMO") == "1" else "live", "authentication": "session", "local_role_switch": os.getenv("LOCAL_DEMO") == "1"}
+    return {"status": "healthy", "workspace": "sample" if os.getenv("LOCAL_DEMO") == "1" else "live", "authentication": "session", "local_role_switch": os.getenv("LOCAL_DEMO") == "1", "revision": os.getenv("RENDER_GIT_COMMIT", "local")}
 
 frontend = Path(os.getenv("FRONTEND_DIST", ""))
 for folder in ("assets", "brand"):

@@ -173,6 +173,18 @@ class TestAccountMembership(Base):
     owner_id = Column(String(36), ForeignKey("profiles.id"), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
 
+class AuditPhoto(Base):
+    __tablename__ = "audit_photos"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    audit_id = Column(String(36), ForeignKey("audit_runs.id"), nullable=False, index=True)
+    file_url = Column(Text, nullable=False)
+
+class CommentPhoto(Base):
+    __tablename__ = "comment_photos"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    comment_id = Column(String(36), ForeignKey("activity_comments.id"), nullable=False, index=True)
+    file_url = Column(Text, nullable=False)
+
 
 class Activity(Base):
     __tablename__ = "activities"

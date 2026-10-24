@@ -11,6 +11,7 @@ from app.core.access import Actor, get_actor, scope_query
 router = APIRouter(prefix="/assets", tags=["Assets"])
 
 class AssetCreate(BaseModel):
+    model_config = {"str_strip_whitespace": True}
     plant_id: str
     zone_id: Optional[str] = None
     parent_id: Optional[str] = None
@@ -22,6 +23,7 @@ class AssetCreate(BaseModel):
     status: Literal["online", "offline", "maintenance"] = "online"
 
 class StatusChange(BaseModel):
+    model_config = {"str_strip_whitespace": True}
     status: Literal["online", "offline", "maintenance"]
     note: str = Field(min_length=1, max_length=2000)
 

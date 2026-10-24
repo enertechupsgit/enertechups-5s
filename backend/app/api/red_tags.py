@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from typing import List, Optional
 from datetime import datetime
-import random
+import uuid
 
 from app.core.database import get_db
 from app.models.models import RedTag
@@ -58,7 +58,7 @@ async def list_red_tags(
 @router.post("", response_model=RedTagResponse)
 async def create_red_tag(payload: RedTagCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     year = datetime.utcnow().year
-    rand_seq = random.randint(100, 999)
+    rand_seq = uuid.uuid4().hex[:12].upper()
     tag_num = f"RT-{year}-{rand_seq}"
 
     rt = RedTag(
@@ -86,6 +86,9 @@ async def update_disposition(tag_id: str, payload: RedTagDispositionUpdate, acto
     rt = result.scalar_one_or_none()
     if not rt:
         raise HTTPException(status_code=404, detail="Red-Tag item not found")
+
+    if rt.is_closed:
+        raise HTTPException(409, "This red tag is already closed")
 
     rt.disposition_by = actor.profile.id
     rt.disposition = payload.disposition

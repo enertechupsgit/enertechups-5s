@@ -5,7 +5,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from app.core.database import get_db
-from app.models.models import AuditRun, Zone
+from app.models.models import AuditRun, Zone, AuditPhoto
 from app.schemas.schemas import AuditRunCreate, AuditRunResponse
 
 from app.core.access import Actor, get_actor, scope_query
@@ -22,7 +22,8 @@ async def list_audits(plant_id: Optional[str] = None, zone_id: Optional[str] = N
     
     result = await db.execute(query)
     audits = result.scalars().all()
-    return audits
+    photos = (await db.execute(select(AuditPhoto).where(AuditPhoto.audit_id.in_([a.id for a in audits])))).scalars().all() if audits else []
+    return [{**AuditRunResponse.model_validate(a).model_dump(), "photos": [p.file_url for p in photos if p.audit_id == a.id]} for a in audits]
 
 @router.post("", response_model=AuditRunResponse)
 async def submit_audit(payload: AuditRunCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
@@ -60,6 +61,9 @@ async def submit_audit(payload: AuditRunCreate, actor: Actor = Depends(get_actor
         conducted_at=datetime.utcnow()
     )
     db.add(audit)
+    await db.flush()
+    for photo in payload.photos:
+        db.add(AuditPhoto(audit_id=audit.id, file_url=photo))
 
     # Update zone current score
     z_res = await db.execute(select(Zone).where(Zone.id == payload.zone_id))
@@ -69,4 +73,4 @@ async def submit_audit(payload: AuditRunCreate, actor: Actor = Depends(get_actor
 
     await db.commit()
     await db.refresh(audit)
-    return audit
+    return {**AuditRunResponse.model_validate(audit).model_dump(), "photos": payload.photos}

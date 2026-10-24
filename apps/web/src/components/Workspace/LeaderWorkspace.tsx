@@ -16,7 +16,7 @@ import type {
   ZonalLeader,
 } from "../../types";
 import { Empty, Status } from "./Shared";
-import { dateLabel, isComplete, useNow } from "./utils";
+import { timestamp, dateLabel, isComplete, useNow } from "./utils";
 
 export function LeaderWorkspace({
   leader,
@@ -47,14 +47,14 @@ export function LeaderWorkspace({
   const completed = assigned.filter((a) => isComplete(a.status));
   const latest = audits
     .filter((a) => a.zone_id === zone?.id)
-    .sort((a, b) => Date.parse(b.conducted_at) - Date.parse(a.conducted_at))[0];
+    .sort((a, b) => timestamp(b.conducted_at) - timestamp(a.conducted_at))[0];
   const zoneTags = redTags.filter(
     (t) => t.zone_id === zone?.id && !t.is_closed,
   );
   const prioritized = [...open].sort(
     (a, b) =>
-      (a.due_date ? Date.parse(a.due_date) : Infinity) -
-      (b.due_date ? Date.parse(b.due_date) : Infinity),
+      (a.due_date ? timestamp(a.due_date) : Infinity) -
+      (b.due_date ? timestamp(b.due_date) : Infinity),
   );
   return (
     <>
@@ -65,7 +65,7 @@ export function LeaderWorkspace({
             number: String(open.length).padStart(2, "0"),
             suffix: "",
             icon: ClipboardList,
-            note: `${open.filter((a) => a.due_date && Date.parse(a.due_date) < now).length} overdue · ordered by due date`,
+            note: `${open.filter((a) => a.due_date && timestamp(a.due_date) < now).length} overdue · ordered by due date`,
             tone: "caution",
           },
           {

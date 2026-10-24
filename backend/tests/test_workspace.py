@@ -1,6 +1,11 @@
 """Integration checks use a disposable database, never the local plant databases."""
 import unittest
 import os
+import base64, io
+from PIL import Image
+_photo = io.BytesIO()
+Image.new("RGB", (16,16), "#1d359d").save(_photo,format="PNG")
+PHOTO = "data:image/png;base64," + base64.b64encode(_photo.getvalue()).decode()
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -63,16 +68,20 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["status"], "in_progress")
         self.assertEqual((await self.client.post(url + "/start")).status_code, 409)
         self.assertEqual((await self.client.post(url + "/report", json={"corrective_action": "Updated"})).status_code, 422)
-        report = {"corrective_action": "Marked tool positions", "after_photo_url": "data:image/png;base64,aGVsbG8="}
+        report = {"corrective_action": "Marked tool positions", "after_photo_url": PHOTO}
         response = await self.client.post(url + "/report", json=report)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["status"], "submitted_for_review")
         self.assertEqual(len(response.json()["evidence"]), 1)
+        reviewer = await self.add_identity("supervisor", "IndependentReviewer")
+        await self.client.post("/auth/local-session", json={"profile_id":reviewer})
         self.assertEqual((await self.client.post(url + "/review", json={"decision": "reject"})).status_code, 400)
         response = await self.client.post(url + "/review", json={"decision": "reject", "rejection_reason": "Label the return outlines"})
         self.assertEqual(response.json()["status"], "rejected")
+        await self.client.post("/auth/local-session", json={"profile_id":self.supervisor_id})
         await self.client.post(url + "/start")
         await self.client.post(url + "/report", json=report)
+        await self.client.post("/auth/local-session", json={"profile_id":reviewer})
         response = await self.client.post(url + "/review", json={"decision": "approve"})
         self.assertEqual(response.json()["status"], "completed")
         reread = (await self.client.get(url)).json()
@@ -268,6 +277,119 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((await tester.get("/auth/me")).status_code,401)
                     self.assertEqual((await tester.post("/auth/login",json={"email":account["email"],"password":account["password"]})).status_code,401)
         _attempts.clear()
+
+    async def test_comments_multiline_photos_and_internal_visibility(self):
+        work=await self.create_work()
+        path=f"/activities/{work['id']}"
+        for bad in ["", "   ", "x"*5001]:
+            self.assertEqual((await self.client.post(path+"/comments",json={"comment":bad})).status_code,422)
+        saved=await self.client.post(path+"/comments",json={"comment":"  First line\nSecond line  ","attachments":[PHOTO],"author_name":"Spoofed"})
+        self.assertEqual(saved.status_code,200,saved.text)
+        self.assertEqual(saved.json()["author_name"],"Test Supervisor")
+        self.assertEqual(saved.json()["comment"],"First line\nSecond line")
+        self.assertEqual(saved.json()["attachments"],[PHOTO])
+        await self.client.post(path+"/comments",json={"comment":"Reviewer-only note","is_internal":True,"attachments":[PHOTO]})
+        own=(await self.client.get(path)).json()
+        self.assertEqual(len(own["comments"]),2)
+        self.assertTrue(any(h["action_note"]=="Comment added" for h in own["history"]))
+        leader=await self.add_identity("zonal_leader","PhotoLeader",self.zone_id)
+        async with self.sessions() as session:
+            activity=await session.get(Activity,work["id"]);activity.assigned_to=leader;await session.commit()
+        await self.client.post("/auth/local-session",json={"profile_id":leader})
+        visible=(await self.client.get(path)).json()["comments"]
+        self.assertEqual(len(visible),1)
+        self.assertEqual(visible[0]["attachments"],[PHOTO])
+        self.assertEqual((await self.client.post(path+"/comments",json={"comment":"Private","is_internal":True})).status_code,403)
+
+    async def test_image_validation_metadata_and_evidence_locks(self):
+        work=await self.create_work();path=f"/activities/{work['id']}"
+        bad_images=["https://example.com/photo.png","data:image/png;base64,aGVsbG8=",PHOTO.replace("image/png","image/jpeg"),"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=","data:image/png;base64,"+base64.b64encode(b"x"*(3*1024*1024+1)).decode()]
+        for photo in bad_images:
+            response=await self.client.post(path+"/report",json={"corrective_action":"Updated","after_photo_url":photo})
+            self.assertEqual(response.status_code,422)
+        evidence={"file_name":"forged.jpg","file_url":PHOTO,"media_type":"before_photo","mime_type":"image/jpeg","file_size_bytes":999}
+        result=await self.client.post(path+"/evidence",json=evidence)
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual(result.json()["mime_type"],"image/png")
+        self.assertEqual(result.json()["file_size_bytes"],len(_photo.getvalue()))
+        self.assertEqual(result.json()["uploaded_by"],self.supervisor_id)
+        await self.client.post(path+"/report",json={"corrective_action":"Updated","before_photo_url":PHOTO,"after_photo_url":PHOTO})
+        self.assertEqual((await self.client.post(path+"/evidence",json=evidence)).status_code,409)
+        reviewer = await self.add_identity("supervisor", "EvidenceReviewer")
+        await self.client.post("/auth/local-session",json={"profile_id":reviewer})
+        await self.client.post(path+"/review",json={"decision":"approve"})
+        self.assertEqual((await self.client.post(path+"/evidence",json=evidence)).status_code,409)
+        persisted=(await self.client.get(path)).json()
+        self.assertEqual(len(persisted["evidence"]),3)
+        self.assertEqual(persisted["evidence"][-1]["mime_type"],"image/png")
+
+    async def test_red_tag_photos_hold_and_closed_record_guards(self):
+        payload={"plant_id":self.plant_id,"zone_id":self.zone_id,"item_name":"Unused jig","reason":"No longer used","quantity":1,"photo_url":PHOTO}
+        self.assertEqual((await self.client.post("/redtags",json={**payload,"quantity":0})).status_code,422)
+        self.assertEqual((await self.client.post("/redtags",json={**payload,"photo_url":"invalid"})).status_code,422)
+        created=await self.client.post("/redtags",json=payload)
+        self.assertEqual(created.status_code,200,created.text)
+        tag=created.json();path=f"/redtags/{tag['id']}/disposition"
+        self.assertEqual((await self.client.get("/redtags")).json()[0]["photo_url"],PHOTO)
+        self.assertEqual((await self.client.put(path,json={"disposition":"hold_for_evaluation","disposition_notes":"Inspect later","is_closed":True})).status_code,422)
+        self.assertEqual((await self.client.put(path,json={"disposition":"scrap","disposition_notes":"   ","is_closed":True})).status_code,422)
+        hold=await self.client.put(path,json={"disposition":"hold_for_evaluation","disposition_notes":"Inspect later","is_closed":False})
+        self.assertEqual(hold.status_code,200)
+        self.assertFalse(hold.json()["is_closed"])
+        close={"disposition":"relocate","disposition_notes":"Moved to the approved storage area","is_closed":True}
+        self.assertEqual((await self.client.put(path,json=close)).status_code,200)
+        self.assertEqual((await self.client.put(path,json=close)).status_code,409)
+
+    async def test_audit_notes_and_photos_persist(self):
+        payload={"plant_id":self.plant_id,"zone_id":self.zone_id,"zone_name":"Untrusted","sort_score":0,"set_in_order_score":80,"shine_score":90,"standardize_score":95,"sustain_score":100,"notes":"Finding one\nFinding two","photos":[PHOTO]}
+        self.assertEqual((await self.client.post("/audits",json={**payload,"photos":["bad"]})).status_code,422)
+        created=await self.client.post("/audits",json=payload)
+        self.assertEqual(created.status_code,200,created.text)
+        saved=(await self.client.get("/audits")).json()[0]
+        self.assertEqual(saved["photos"],[PHOTO])
+        self.assertEqual(saved["notes"],payload["notes"])
+        self.assertEqual(saved["score_percentage"],73)
+        self.assertEqual(saved["zone_name"],"Workbench")
+
+    async def test_pdf_handles_markup_text_without_interpreting_it(self):
+        response=await self.client.post("/activities",json={"plant_id":self.plant_id,"zone_id":self.zone_id,"title":"Inspect <b> & tools","problem_description":"Use A < B & check > C\nNext line"})
+        self.assertEqual(response.status_code,200,response.text)
+        pdf=await self.client.get(f"/reports/activity/{response.json()['id']}/pdf")
+        self.assertEqual(pdf.status_code,200,pdf.text[:100] if pdf.status_code!=200 else "")
+        self.assertTrue(pdf.content.startswith(b"%PDF"))
+
+    async def test_browser_empty_json_start_and_malformed_body(self):
+        work=await self.create_work();path=f"/activities/{work['id']}/start"
+        response=await self.client.post(path,headers={"Content-Type":"application/json"})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()["status"],"in_progress")
+        response=await self.client.post(path,content="not-json",headers={"Content-Type":"application/json"})
+        self.assertEqual(response.status_code,422)
+        self.assertEqual((await self.client.post(path,json=[])).status_code,422)
+
+    async def test_assignee_eligibility_and_independent_report_review(self):
+        director=await self.add_identity("management","ReadOnlyAssignee")
+        misplaced=await self.add_identity("zonal_leader","NoAssignedZone")
+        payload={"plant_id":self.plant_id,"zone_id":self.zone_id,"title":"Assignment validation","problem_description":"Assign executable work"}
+        for person in [director,misplaced]:
+            self.assertEqual((await self.client.post("/activities",json={**payload,"assigned_to":person})).status_code,422)
+        work=await self.create_work();path=f"/activities/{work['id']}"
+        self.assertEqual((await self.client.post(path+"/report",json={"corrective_action":"Completed","after_photo_url":PHOTO})).status_code,200)
+        self.assertEqual((await self.client.post(path+"/review",json={"decision":"approve"})).status_code,403)
+        self.assertEqual((await self.client.post(path+"/review",json={"decision":"reject","rejection_reason":"Self review"})).status_code,403)
+        reviewer=await self.add_identity("supervisor","ActualReviewer")
+        await self.client.post("/auth/local-session",json={"profile_id":reviewer})
+        self.assertEqual((await self.client.post(path+"/review",json={"decision":"approve"})).status_code,200)
+
+    async def test_jpeg_webp_and_png_metadata(self):
+        work=await self.create_work()
+        for format,mime in [("PNG","image/png"),("JPEG","image/jpeg"),("WEBP","image/webp")]:
+            buffer=io.BytesIO();Image.new("RGB",(20,20),"#1d359d").save(buffer,format=format)
+            photo=f"data:{mime};base64,"+base64.b64encode(buffer.getvalue()).decode()
+            response=await self.client.post(f"/activities/{work['id']}/evidence",json={"file_name":"untrusted.bin","file_url":photo})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.json()["mime_type"],mime)
+            self.assertEqual(response.json()["file_size_bytes"],len(buffer.getvalue()))
 
 if __name__ == "__main__":
     unittest.main()

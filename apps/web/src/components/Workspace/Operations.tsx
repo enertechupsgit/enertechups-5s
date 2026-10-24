@@ -10,7 +10,7 @@ import {
   updateRedTagDisposition,
 } from "../../api/client";
 import { Dialog, Empty, EvidenceInput } from "./Shared";
-import { dateLabel, pillars } from "./utils";
+import { dateLabel, dateTimeLabel, pillars } from "./utils";
 
 export function AuditWorkspace({
   plant,
@@ -24,6 +24,9 @@ export function AuditWorkspace({
   onSaved: (audit: AuditRun) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const [selectedAudit, setSelectedAudit] = useState<AuditRun | null>(null);
+  const [photo, setPhoto] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const zones = plant.departments.flatMap((d) => d.zones);
@@ -65,10 +68,16 @@ export function AuditWorkspace({
                       data-label="Zone"
                       className="font-medium whitespace-nowrap"
                     >
-                      {a.zone_name}
+                      <button
+                        className="work-title"
+                        aria-label={`View assessment ${a.zone_name} ${dateLabel(a.conducted_at)}`}
+                        onClick={() => setSelectedAudit(a)}
+                      >
+                        {a.zone_name}
+                      </button>
                     </td>
                     <td data-label="Date" className="whitespace-nowrap">
-                      {dateLabel(a.conducted_at)}
+                      {dateTimeLabel(a.conducted_at)}
                     </td>
                     <td data-label="Auditor">{a.auditor_name}</td>
                     {pillars.map((p) => (
@@ -99,6 +108,44 @@ export function AuditWorkspace({
           />
         )}
       </section>
+      {selectedAudit && (
+        <Dialog
+          title="Assessment details"
+          onClose={() => setSelectedAudit(null)}
+        >
+          <div className="dialog-body">
+            <h3 className="font-semibold">{selectedAudit.zone_name}</h3>
+            <p className="mt-2 text-sm text-base-content/65">
+              {dateTimeLabel(selectedAudit.conducted_at)} ·{" "}
+              {selectedAudit.auditor_name}
+            </p>
+            <dl className="my-5 grid grid-cols-2 gap-3">
+              {pillars.map((pillar) => (
+                <div key={pillar.key}>
+                  <dt className="text-xs text-base-content/60">
+                    {pillar.name}
+                  </dt>
+                  <dd className="font-medium">
+                    {selectedAudit[pillar.score]}%
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <h4 className="text-sm font-medium">Assessment notes</h4>
+            <p className="mt-2 text-sm whitespace-pre-wrap break-words">
+              {selectedAudit.notes || "No notes recorded."}
+            </p>
+            {selectedAudit.photos?.map((image, index) => (
+              <img
+                key={index}
+                className="mt-4 w-full max-h-96 object-contain rounded-lg"
+                src={image}
+                alt={`Assessment photo ${index + 1}`}
+              />
+            ))}
+          </div>
+        </Dialog>
+      )}
       {creating && (
         <Dialog
           title="Record a 5S assessment"
@@ -126,9 +173,11 @@ export function AuditWorkspace({
                   standardize_score: Number(scores.standardize_score),
                   sustain_score: Number(scores.sustain_score),
                   notes: String(form.get("notes")),
+                  photos: photo ? [photo] : [],
                 });
                 onSaved(audit);
                 setCreating(false);
+                setPhoto("");
               } catch (err) {
                 setError((err as Error).message);
               } finally {
@@ -138,9 +187,7 @@ export function AuditWorkspace({
           >
             <div className="dialog-body">
               <p className="mb-5 text-xs leading-relaxed text-base-content/65">
-                Enter observed pillar scores from your plant’s assessment
-                rubric. The server calculates the overall mean and records your
-                signed-in identity.
+                Score each pillar using your plant’s assessment rubric.
               </p>
               {error && (
                 <p className="form-error" role="alert">
@@ -184,6 +231,12 @@ export function AuditWorkspace({
                   placeholder="Record observed conditions, findings, and evidence references."
                 />
               </label>
+              <EvidenceInput
+                value={photo}
+                onChange={setPhoto}
+                label="Assessment photo (optional)"
+                onPendingChange={setUploading}
+              />
             </div>
             <div className="dialog-foot">
               <button
@@ -195,7 +248,7 @@ export function AuditWorkspace({
               </button>
               <button
                 className="btn btn-primary"
-                disabled={busy || !zones.length}
+                disabled={busy || uploading || !zones.length}
               >
                 {busy ? "Saving…" : "Save assessment"}
               </button>
@@ -222,9 +275,15 @@ export function RedTagsWorkspace({
 }) {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<"create" | RedTag | null>(null);
+  const [viewing, setViewing] = useState<RedTag | null>(null);
+  const [dispositionChoice, setDispositionChoice] = useState(
+    "hold_for_evaluation",
+  );
+  const [executed, setExecuted] = useState(false);
   const [photo, setPhoto] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const zones = plant.departments.flatMap((d) => d.zones);
   const filtered = tags.filter((t) =>
     `${t.item_name} ${t.tag_number}`
@@ -279,7 +338,13 @@ export function RedTagsWorkspace({
                   <tr key={t.id}>
                     <td data-label="Tagged item">
                       <span className="work-id">{t.tag_number}</span>
-                      <strong className="block text-xs">{t.item_name}</strong>
+                      <button
+                        className="work-title block"
+                        aria-label={`View red tag ${t.tag_number}`}
+                        onClick={() => setViewing(t)}
+                      >
+                        {t.item_name}
+                      </button>
                       <span className="text-[10px] text-base-content/55">
                         Qty {t.quantity} · {t.item_category}
                       </span>
@@ -313,6 +378,12 @@ export function RedTagsWorkspace({
                           className="btn"
                           onClick={() => {
                             setError("");
+                            setDispositionChoice(
+                              t.disposition === "pending"
+                                ? "hold_for_evaluation"
+                                : t.disposition,
+                            );
+                            setExecuted(false);
                             setModal(t);
                           }}
                         >
@@ -339,6 +410,36 @@ export function RedTagsWorkspace({
           />
         )}
       </section>
+      {viewing && (
+        <Dialog title={viewing.tag_number} onClose={() => setViewing(null)}>
+          <div className="dialog-body">
+            <h3 className="font-semibold">{viewing.item_name}</h3>
+            <p className="mt-2 text-sm">
+              {zones.find((zone) => zone.id === viewing.zone_id)?.name} · Qty{" "}
+              {viewing.quantity}
+            </p>
+            <p className="my-4 text-sm whitespace-pre-wrap break-words">
+              {viewing.reason}
+            </p>
+            {viewing.photo_url && (
+              <img
+                className="w-full max-h-96 object-contain rounded-lg"
+                src={viewing.photo_url}
+                alt={`Red-tag evidence for ${viewing.item_name}`}
+              />
+            )}
+            <h4 className="mt-5 font-medium text-sm">Disposition</h4>
+            <p className="mt-2 text-sm">
+              {viewing.is_closed
+                ? "Closed"
+                : viewing.disposition.replaceAll("_", " ")}
+            </p>
+            <p className="mt-2 text-sm whitespace-pre-wrap break-words">
+              {viewing.disposition_notes || "No disposition notes yet."}
+            </p>
+          </div>
+        </Dialog>
+      )}
       {modal && (
         <Dialog
           title={
@@ -441,14 +542,37 @@ export function RedTagsWorkspace({
                       rows={3}
                     />
                   </label>
-                  <EvidenceInput value={photo} onChange={setPhoto} />
+                  <EvidenceInput
+                    value={photo}
+                    onChange={setPhoto}
+                    label="Red-tag photo (optional)"
+                    onPendingChange={setUploading}
+                  />
                 </>
               ) : (
                 <>
                   <p className="mb-5 text-sm font-medium">{modal.item_name}</p>
+                  <p className="mb-4 text-sm whitespace-pre-wrap">
+                    {modal.reason}
+                  </p>
+                  {modal.photo_url && (
+                    <img
+                      className="mb-4 max-h-64 w-full object-contain"
+                      src={modal.photo_url}
+                      alt="Tagged item evidence"
+                    />
+                  )}
                   <label>
                     Disposition
-                    <select className="select" name="disposition">
+                    <select
+                      className="select"
+                      name="disposition"
+                      value={dispositionChoice}
+                      onChange={(event) => {
+                        setDispositionChoice(event.target.value);
+                        setExecuted(false);
+                      }}
+                    >
                       <option value="hold_for_evaluation">
                         Hold for evaluation
                       </option>
@@ -464,11 +588,19 @@ export function RedTagsWorkspace({
                       name="notes"
                       required
                       rows={3}
+                      defaultValue={modal.disposition_notes || ""}
                     />
                   </label>
                   <label className="flex-row! items-start gap-3!">
-                    <input className="mt-1" type="checkbox" name="executed" />I
-                    confirm the physical disposition has been carried out and
+                    <input
+                      className="mt-1"
+                      type="checkbox"
+                      name="executed"
+                      checked={executed}
+                      disabled={dispositionChoice === "hold_for_evaluation"}
+                      onChange={(event) => setExecuted(event.target.checked)}
+                    />
+                    I confirm the physical disposition has been carried out and
                     this item can be closed.
                   </label>
                 </>
@@ -484,7 +616,7 @@ export function RedTagsWorkspace({
               </button>
               <button
                 className="btn btn-primary"
-                disabled={busy || !zones.length}
+                disabled={busy || uploading || !zones.length}
               >
                 {busy ? "Saving…" : "Save record"}
               </button>

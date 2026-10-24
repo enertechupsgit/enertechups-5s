@@ -1,5 +1,10 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, AfterValidator, StringConstraints, model_validator
+from typing import Optional, List, Dict, Any, Annotated, Literal
+from app.core.images import validate_image
+Photo = Annotated[str, AfterValidator(validate_image)]
+NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=5000)]
+Category = Literal["sort_seiri", "set_in_order_seiton", "shine_seiso", "standardize_seiketsu", "sustain_shitsuke"]
+Priority = Literal["low", "medium", "high", "critical"]
 from datetime import datetime
 from app.models.models import FiveSCategory, ActivityStatus, PriorityLevel, MediaType, RedTagDisposition, UserRole
 
@@ -128,10 +133,11 @@ class ZonalLeaderResponse(BaseModel):
         from_attributes = True
 
 class ReportSubmissionRequest(BaseModel):
-    corrective_action: str
+    model_config = {"allow_inf_nan": False}
+    corrective_action: NonBlank
     outcome_description: Optional[str] = None
-    before_photo_url: Optional[str] = None
-    after_photo_url: str
+    before_photo_url: Optional[Photo] = None
+    after_photo_url: Photo
     benefits_safety: bool = False
     benefits_space_sqft: float = 0.0
     benefits_time_seconds: float = 0.0
@@ -145,7 +151,7 @@ class ReportReviewRequest(BaseModel):
 
 
 # Evidence Media Schemas
-class EvidenceMediaCreate(BaseModel):
+class EvidenceMediaFields(BaseModel):
     media_type: str = MediaType.BEFORE_PHOTO.value
     file_name: str
     file_url: str
@@ -153,7 +159,11 @@ class EvidenceMediaCreate(BaseModel):
     mime_type: str = "image/jpeg"
     annotations_json: Optional[Dict[str, Any]] = None
 
-class EvidenceMediaResponse(EvidenceMediaCreate):
+class EvidenceMediaCreate(EvidenceMediaFields):
+    file_url: Photo
+    media_type: Literal["before_photo", "after_photo", "action_step", "supporting_doc"] = "before_photo"
+
+class EvidenceMediaResponse(EvidenceMediaFields):
     id: str
     activity_id: str
     uploaded_by: Optional[str] = None
@@ -175,12 +185,17 @@ class ActivityHistoryResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class ActivityCommentCreate(BaseModel):
-    author_name: str
+class ActivityCommentFields(BaseModel):
+    author_name: str = ""
     comment: str
     is_internal: bool = False
 
-class ActivityCommentResponse(ActivityCommentCreate):
+class ActivityCommentCreate(ActivityCommentFields):
+    comment: NonBlank
+    attachments: List[Photo] = Field(default_factory=list, max_length=3)
+
+class ActivityCommentResponse(ActivityCommentFields):
+    attachments: List[str] = Field(default_factory=list)
     id: str
     activity_id: str
     author_id: Optional[str] = None
@@ -191,14 +206,15 @@ class ActivityCommentResponse(ActivityCommentCreate):
 
 # 5S Activity Schemas
 class ActivityCreate(BaseModel):
+    model_config = {"allow_inf_nan": False}
     plant_id: str
     zone_id: str
-    category: str = FiveSCategory.SORT.value
-    title: str
-    problem_description: str
+    category: Category = FiveSCategory.SORT.value
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+    problem_description: NonBlank
     corrective_action: Optional[str] = None
     outcome_description: Optional[str] = None
-    priority: str = PriorityLevel.MEDIUM.value
+    priority: Priority = PriorityLevel.MEDIUM.value
     assigned_to: Optional[str] = None
     supervisor_id: Optional[str] = None
     due_date: Optional[datetime] = None
@@ -211,14 +227,15 @@ class ActivityCreate(BaseModel):
     benefits_summary: Optional[str] = None
 
     # Optional initial before photo
-    initial_before_photo_url: Optional[str] = None
+    initial_before_photo_url: Optional[Photo] = None
 
 class ActivityUpdate(BaseModel):
-    title: Optional[str] = None
-    problem_description: Optional[str] = None
+    model_config = {"allow_inf_nan": False}
+    title: Optional[NonBlank] = None
+    problem_description: Optional[NonBlank] = None
     corrective_action: Optional[str] = None
     outcome_description: Optional[str] = None
-    priority: Optional[str] = None
+    priority: Optional[Priority] = None
     assigned_to: Optional[str] = None
     supervisor_id: Optional[str] = None
     due_date: Optional[datetime] = None
@@ -241,7 +258,7 @@ class ActivitySubmitReview(BaseModel):
 class ActivityReviewDecision(BaseModel):
     decision: str = Field(..., description="'approve' or 'reject'")
     reviewer_name: str = "Area Supervisor"
-    rejection_reason: Optional[str] = Field(None, description="Mandatory when decision is 'reject'")
+    rejection_reason: Optional[NonBlank] = Field(None, description="Mandatory when decision is 'reject'")
     review_notes: Optional[str] = None
 
 class ActivityResponse(BaseModel):
@@ -288,18 +305,23 @@ class ActivityResponse(BaseModel):
 class RedTagCreate(BaseModel):
     plant_id: str
     zone_id: str
-    item_name: str
+    item_name: NonBlank
     item_category: str = "Tool/Fixture"
-    quantity: int = 1
-    reason: str
-    photo_url: Optional[str] = None
+    quantity: int = Field(default=1, ge=1, le=1000000)
+    reason: NonBlank
+    photo_url: Optional[Photo] = None
     logged_by_name: Optional[str] = "Floor Operator"
 
 class RedTagDispositionUpdate(BaseModel):
-    disposition: str = RedTagDisposition.RELOCATE.value
-    disposition_notes: str
+    disposition: Literal["relocate", "scrap", "return_to_vendor", "hold_for_evaluation"] = "relocate"
+    disposition_notes: NonBlank
     disposition_by_name: str = "5S Coordinator"
     is_closed: bool = True
+    @model_validator(mode="after")
+    def hold_cannot_close(self):
+        if self.disposition == "hold_for_evaluation" and self.is_closed:
+            raise ValueError("An item on hold cannot be closed")
+        return self
 
 class RedTagResponse(BaseModel):
     id: str
@@ -325,6 +347,7 @@ class RedTagResponse(BaseModel):
 
 # Audit Runs
 class AuditRunCreate(BaseModel):
+    photos: List[Photo] = Field(default_factory=list, max_length=3)
     plant_id: str
     zone_id: str
     zone_name: str
@@ -337,6 +360,7 @@ class AuditRunCreate(BaseModel):
     notes: Optional[str] = None
 
 class AuditRunResponse(BaseModel):
+    photos: List[str] = Field(default_factory=list)
     id: str
     plant_id: str
     zone_id: str

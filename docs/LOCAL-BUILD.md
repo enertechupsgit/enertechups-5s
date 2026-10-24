@@ -20,9 +20,9 @@ The launcher uses the bundled Python runtime when available and the existing `.v
 
 Use **Switch role** in the top bar to choose a sample Director, Supervisor, Auditor, or Zonal leader. This creates an eight-hour HttpOnly session with server-enforced permissions. The director has read-only plant oversight; supervisors assign/review work and manage operational records; auditors conduct assessments; leaders execute their own work in their assigned zone. **My access & roles** explains permissions and compares the roles. API checks include scope, active membership, self-review prevention, session expiry, and write-origin/header validation.
 
-Sample account switching is intentionally available only in `LOCAL_DEMO=1` on loopback, restricted to sample identities. It is a development evaluation feature. It is not a production impersonation feature. Outside this mode, local switching is disabled and a production identity provider must be connected. `-UseExistingData` does not enable sample authentication against existing plant records.
+Sample account switching is intentionally available only in `LOCAL_DEMO=1` on loopback, restricted to sample identities. It is a development evaluation feature. It is not a production impersonation feature. Outside this mode, local switching is disabled. Hosted deployments use protected administrator setup and password/session sign-in; see RENDER-DEPLOYMENT.md. `-UseExistingData` does not enable sample authentication against existing plant records.
 
-Production identity-provider sign-in, managed PostgreSQL/migrations, private object storage, question-level audit templates, and native mobile/offline sync remain roadmap work. Do not publicly expose this development server. The browser UI is responsive; native Android/iOS packaging and offline guarantees are not included in this increment.
+Managed PostgreSQL is configured for Render. Reviewed schema migrations, SSO, private object storage, question-level audit templates, and native mobile/offline sync remain roadmap work. Do not publicly expose this development server. The browser UI is responsive; native Android/iOS packaging and offline guarantees are not included in this increment.
 
 ## Mobile behaviour
 
@@ -30,7 +30,7 @@ Phone work lists automatically use cards. Search stays visible; additional filte
 
 Brand assets come from the official EnerTech UPS website: https://enertechups.com/. The logo is saved at `apps/web/public/brand/enertech-logo.png`; the primary blue (#1d359d) was observed on the official site's call-to-action. Supporting neutrals are application choices, not a published corporate brand specification.
 
-Photos in this local increment are limited to JPEG/PNG/WebP under 3 MB by the upload UI and stored as data URLs in the evidence record. This is for local evaluation. The production private media pipeline and server-side file validation are still required.
+New photos accept JPEG/PNG/WebP up to 3 MB and 20 megapixels, with decoded image validation on both the client and server. Evidence remains stored as data URLs; private object storage and media pagination remain scaling work. Work comments and assessments support persisted photo attachments. See FUNCTIONAL-AUDIT.md for the tested upload fields and limitations.
 
 ## Checks
 
@@ -38,9 +38,10 @@ Photos in this local increment are limited to JPEG/PNG/WebP under 3 MB by the up
 # Within apps/web:
 pnpm run build
 pnpm run lint
+pnpm run test
 
 # From backend, using a working Python with dependencies:
-python -m unittest discover -s tests -p test_workspace.py -v
+python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-The new integration suite creates an isolated in-memory SQLite database. Eight tests cover workflow persistence, asset validation/history, audit bounds and authorship, PDF output, role and zone restrictions, self-review, cross-organization isolation, logout, CSRF origins, production switch denial, and immediate membership revocation. It does not mutate existing plant data. The older `test_api.py` still contains assumptions about the former Austin sample dataset and needs migration as part of the broader test roadmap.
+The backend suite runs 20 isolated tests covering workflows, comments, photo validation/persistence, audit records, red-tag disposition, assignment eligibility, independent review, public health, authentication and role/organization boundaries. It uses isolated SQLite databases and does not mutate plant data. Three Node tests cover timestamp parsing. See FUNCTIONAL-AUDIT.md for browser verification and remaining release work.

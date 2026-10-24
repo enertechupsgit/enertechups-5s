@@ -26,13 +26,7 @@ export const pillars = [
     score: "sustain_score",
   },
 ] as const;
-export const dateLabel = (date?: string | null) =>
-  date
-    ? new Date(date).toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "short",
-      })
-    : "No due date";
+export { dateLabel, dateTimeLabel, timestamp } from "./dates";
 export const isComplete = (status: string) =>
   ["approved", "completed"].includes(status);
 

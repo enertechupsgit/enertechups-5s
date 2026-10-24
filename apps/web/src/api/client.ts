@@ -2,21 +2,17 @@ import type {
   Plant,
   Zone,
   ZoneCreatePayload,
-  ZoneUpdatePayload,
   Activity,
   RedTag,
   AuditRun,
-  DashboardStats,
   ActivityComment,
   ZonalLeader,
   ZonalLeaderCreatePayload,
-  ZonalLeaderUpdatePayload,
   ReportSubmissionPayload,
   ReportReviewPayload,
 } from "../types";
 
 export const BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
-let connected = false;
 export async function request<T>(
   path: string,
   options?: RequestInit,
@@ -25,21 +21,30 @@ export async function request<T>(
     ...options,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(typeof options?.body === "string"
+        ? { "Content-Type": "application/json" }
+        : {}),
       "X-Workspace-Request": "1",
       ...options?.headers,
     },
-    signal: options?.signal || AbortSignal.timeout(15000),
+    signal:
+      options?.signal ||
+      AbortSignal.timeout(
+        options?.method && options.method !== "GET" ? 60000 : 15000,
+      ),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     throw new Error(
       typeof body?.detail === "string"
         ? body.detail
-        : `Request failed (${response.status}). Please check your input and try again.`,
+        : Array.isArray(body?.detail)
+          ? body.detail
+              .map((issue: { msg?: string }) => issue.msg || "Invalid input")
+              .join(". ")
+          : `Request failed (${response.status}). Please try again.`,
     );
   }
-  connected = true;
   if (response.status === 204) return undefined as T;
   return response.json();
 }
@@ -54,19 +59,6 @@ const write = <T>(path: string, method: string, body?: unknown) =>
     method,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-export async function checkBackendConnection() {
-  try {
-    connected = (
-      await fetch(BASE_URL.replace(/\/api\/v1\/?$/, "/health"), {
-        signal: AbortSignal.timeout(3000),
-      })
-    ).ok;
-  } catch {
-    connected = false;
-  }
-  return connected;
-}
-export const getIsLiveApi = () => connected;
 export interface WorkspaceIdentity {
   id: string;
   name: string;
@@ -88,17 +80,8 @@ export const switchIdentity = (profileId: string) =>
   });
 export const logout = () => write("/auth/logout", "POST");
 export const fetchPlants = () => request<Plant[]>("/plants");
-export const fetchZones = (deptId?: string) =>
-  request<Zone[]>(`/plants/zones?${query({ dept_id: deptId })}`);
 export const createZone = (payload: ZoneCreatePayload) =>
   write<Zone>("/plants/zones", "POST", payload);
-export const updateZone = (id: string, payload: ZoneUpdatePayload) =>
-  write<Zone>(`/plants/zones/${id}`, "PUT", payload);
-export const deleteZone = async (id: string) => {
-  await write(`/plants/zones/${id}`, "DELETE");
-};
-export const fetchPlantDashboard = (id: string) =>
-  request<DashboardStats>(`/plants/${id}/dashboard`);
 export const fetchActivities = (filters?: {
   plant_id?: string;
   zone_id?: string;
@@ -109,41 +92,24 @@ export const fetchActivities = (filters?: {
 export const createActivity = (
   payload: Partial<Activity> & { initial_before_photo_url?: string },
 ) => write<Activity>("/activities", "POST", payload);
+export const fetchActivity = (id: string) =>
+  request<Activity>(`/activities/${id}`);
 export const startActivity = (id: string) =>
   write<Activity>(`/activities/${id}/start`, "POST");
 export const submitActivityReport = (payload: ReportSubmissionPayload) =>
   write<Activity>(`/activities/${payload.activity_id}/report`, "POST", payload);
-export const submitActivityForReview = (
-  id: string,
-  payload: Omit<ReportSubmissionPayload, "activity_id" | "after_photo_url"> & {
-    after_photo_url?: string;
-  },
-) => write<Activity>(`/activities/${id}/report`, "POST", payload);
 export const reviewActivityReport = (
   id: string,
   payload: ReportReviewPayload,
 ) => write<Activity>(`/activities/${id}/review`, "POST", payload);
-export const reviewActivityDecision = (
-  id: string,
-  payload: {
-    decision: "approved" | "rejected";
-    rejection_reason?: string;
-    supervisor_note?: string;
-  },
-) =>
-  write<Activity>(`/activities/${id}/review`, "POST", {
-    decision: payload.decision === "approved" ? "approve" : "reject",
-    rejection_reason: payload.rejection_reason,
-    review_notes: payload.supervisor_note,
-  });
 export const addActivityComment = (
   id: string,
   comment: string,
-  authorName = "Local operator",
+  attachments: string[] = [],
 ) =>
   write<ActivityComment>(`/activities/${id}/comments`, "POST", {
     comment,
-    author_name: authorName,
+    attachments,
   });
 export const fetchRedTags = (filters?: {
   plant_id?: string;
@@ -174,6 +140,7 @@ export const fetchAudits = (plantId?: string, zoneId?: string) =>
     `/audits?${query({ plant_id: plantId, zone_id: zoneId })}`,
   );
 export const submitAudit = (payload: {
+  photos?: string[];
   plant_id: string;
   zone_id: string;
   zone_name: string;
@@ -193,13 +160,6 @@ export const fetchZonalLeaders = (plantId?: string) =>
   );
 export const createZonalLeader = (payload: ZonalLeaderCreatePayload) =>
   write<ZonalLeader>("/management/zonal-leaders", "POST", payload);
-export const updateZonalLeader = (
-  id: string,
-  payload: ZonalLeaderUpdatePayload,
-) => write<ZonalLeader>(`/management/zonal-leaders/${id}`, "PUT", payload);
-export const deleteZonalLeader = async (id: string) => {
-  await write(`/management/zonal-leaders/${id}`, "DELETE");
-};
 export interface AssetRecord {
   id: string;
   plant_id: string;

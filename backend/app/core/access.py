@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.models.models import Profile, Plant, Department, Zone, Activity, Asset, RedTag, WorkspaceSession
+from app.models.models import Profile, Plant, Department, Zone, Activity, Asset, RedTag, WorkspaceSession, ActivityHistory
 
 READ = {"overview.read", "work.read", "audit.read", "redtag.read", "asset.read", "location.read", "standard.read", "report.export", "access.read"}
 PERMISSIONS = {
@@ -132,6 +132,10 @@ async def enforce_access(request: Request, actor: Actor = Depends(get_actor), db
                 raise HTTPException(409, "Completed work is a retained record and cannot be edited")
             if path.endswith("/review") and record.assigned_to == actor.profile.id:
                 raise HTTPException(403, "You cannot approve or reject your own submitted work")
+            if path.endswith("/review"):
+                submitter = await db.scalar(select(ActivityHistory.actor_id).where(ActivityHistory.activity_id == record.id, ActivityHistory.to_status == "submitted_for_review").order_by(ActivityHistory.created_at.desc()).limit(1))
+                if submitter == actor.profile.id:
+                    raise HTTPException(403, "An independent reviewer must review your report")
         elif isinstance(record, Zone):
             parent = await db.get(Department, record.dept_id)
             actor.require_plant(parent.plant_id)
@@ -151,7 +155,14 @@ async def enforce_access(request: Request, actor: Actor = Depends(get_actor), db
     if request.query_params.get("zone_id"):
         actor.require_zone(request.query_params["zone_id"])
     if method in {"POST", "PUT", "PATCH"} and request.headers.get("content-type", "").startswith("application/json"):
-        payload = await request.json()
+        import json
+        body = await request.body()
+        try:
+            payload = json.loads(body) if body else {}
+        except (ValueError, UnicodeDecodeError):
+            raise HTTPException(422, "Request body must be valid JSON") from None
+        if not isinstance(payload, dict):
+            raise HTTPException(422, "Request body must be a JSON object")
         if isinstance(payload, dict):
             if payload.get("plant_id"):
                 actor.require_plant(payload["plant_id"])
@@ -176,6 +187,19 @@ async def enforce_access(request: Request, actor: Actor = Depends(get_actor), db
                 assignee = await db.get(Profile, payload["assigned_to"])
                 if not assignee or not assignee.is_active or assignee.plant_id not in actor.plant_ids or (payload.get("plant_id") and assignee.plant_id != payload["plant_id"]):
                     raise HTTPException(422, "Assignee must be an active member of the selected plant")
+                assignee_role = ROLE_NAMES.get(assignee.role, assignee.role)
+                if assignee_role not in {"zonal_leader", "supervisor", "admin"}:
+                    raise HTTPException(422, "Choose an assignee whose role can execute work")
+                target_work = await db.get(Activity, request.path_params["activity_id"]) if request.path_params.get("activity_id") else None
+                target_zone = payload.get("zone_id") or (target_work.zone_id if target_work else None)
+                if assignee_role == "zonal_leader" and assignee.assigned_zone_id != target_zone:
+                    raise HTTPException(422, "The assignee must be responsible for the selected zone")
+            if family == "activities" and payload.get("supervisor_id"):
+                supervisor = await db.get(Profile, payload["supervisor_id"])
+                target_work = await db.get(Activity, request.path_params["activity_id"]) if request.path_params.get("activity_id") else None
+                target_plant = payload.get("plant_id") or (target_work.plant_id if target_work else actor.profile.plant_id)
+                if not supervisor or not supervisor.is_active or supervisor.plant_id != target_plant or ROLE_NAMES.get(supervisor.role, supervisor.role) not in {"supervisor", "admin"}:
+                    raise HTTPException(422, "Reviewer must be an active reviewer in the selected plant")
             if actor.limited and method == "PUT" and family == "activities":
                 raise HTTPException(403, "Use the task execution and report submission actions")
     request.state.actor = actor

@@ -18,6 +18,7 @@ import {
 import type { Activity, Plant, ZonalLeader } from "../../types";
 import {
   addActivityComment,
+  fetchActivity,
   createActivity,
   getActivityPdfDownloadUrl,
   reviewActivityReport,
@@ -25,7 +26,14 @@ import {
   submitActivityReport,
 } from "../../api/client";
 import { Dialog, Empty, EvidenceInput, Status } from "./Shared";
-import { dateLabel, isComplete, pillars, useNow } from "./utils";
+import {
+  dateTimeLabel,
+  timestamp,
+  dateLabel,
+  isComplete,
+  pillars,
+  useNow,
+} from "./utils";
 
 export function WorkOrders({
   activities,
@@ -245,7 +253,7 @@ export function WorkOrders({
                     </div>
                   </td>
                   <td
-                    className={`whitespace-nowrap ${a.due_date && Date.parse(a.due_date) < now && !isComplete(a.status) ? "text-error" : "text-base-content/60"}`}
+                    className={`whitespace-nowrap ${a.due_date && timestamp(a.due_date) < now && !isComplete(a.status) ? "text-error" : "text-base-content/60"}`}
                   >
                     {dateLabel(a.due_date)}
                   </td>
@@ -282,6 +290,11 @@ export function NewWork({
   const zones = plant.departments.flatMap((d) => d.zones);
   const [photo, setPhoto] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [selectedZone, setSelectedZone] = useState(zones[0]?.id || "");
+  const [assignee, setAssignee] = useState(
+    leaders.length === 1 ? leaders[0].id : "",
+  );
   const [error, setError] = useState("");
   return (
     <Dialog title="Create work order" onClose={onClose}>
@@ -347,7 +360,11 @@ export function NewWork({
                 className="select"
                 name="zone"
                 required
-                defaultValue={zones[0]?.id || ""}
+                value={selectedZone}
+                onChange={(event) => {
+                  setSelectedZone(event.target.value);
+                  setAssignee("");
+                }}
               >
                 <option value="" disabled>
                   Select a zone
@@ -374,11 +391,23 @@ export function NewWork({
               <select
                 className="select"
                 name="assignee"
-                defaultValue={leaders.length === 1 ? leaders[0].id : ""}
+                value={assignee}
+                onChange={(event) => setAssignee(event.target.value)}
               >
                 <option value="">Unassigned</option>
                 {leaders
-                  .filter((l) => l.is_active)
+                  .filter(
+                    (l) =>
+                      l.is_active &&
+                      ([
+                        "supervisor",
+                        "admin",
+                        "plant_manager",
+                        "super_admin",
+                      ].includes(l.role) ||
+                        (["zonal_leader", "operator"].includes(l.role) &&
+                          l.assigned_zone_id === selectedZone)),
+                  )
                   .map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.first_name} {l.last_name}
@@ -400,11 +429,12 @@ export function NewWork({
               <input className="input" type="date" name="due" />
             </label>
           </div>
-          <p className="mb-2 text-[11px] font-medium">
-            Before evidence{" "}
-            <span className="font-normal text-base-content/50">(optional)</span>
-          </p>
-          <EvidenceInput value={photo} onChange={setPhoto} />
+          <EvidenceInput
+            value={photo}
+            onChange={setPhoto}
+            label="Before photo (optional)"
+            onPendingChange={setUploading}
+          />
           {!zones.length && (
             <p className="form-error">
               Add a zone under Locations before creating a work order.
@@ -417,7 +447,7 @@ export function NewWork({
           </button>
           <button
             className="btn btn-primary"
-            disabled={saving || !zones.length}
+            disabled={saving || uploading || !zones.length}
           >
             {saving ? "Saving…" : "Create work order"}
           </button>
@@ -450,6 +480,10 @@ export function WorkDetail({
   const [busy, setBusy] = useState(false);
   const [photo, setPhoto] = useState("");
   const [comment, setComment] = useState("");
+  const [commentPhoto, setCommentPhoto] = useState("");
+  const [beforePhoto, setBeforePhoto] = useState("");
+  const [uploads, setUploads] = useState<Record<string, boolean>>({});
+  const uploading = Object.values(uploads).some(Boolean);
   const zone = plant.departments
     .flatMap((d) => d.zones)
     .find((z) => z.id === activity.zone_id);
@@ -482,7 +516,9 @@ export function WorkDetail({
           </span>
           <span className="flex items-center gap-1.5">
             <Clock3 size={13} />
-            Due {dateLabel(activity.due_date)}
+            {activity.due_date
+              ? `Due ${dateLabel(activity.due_date)}`
+              : "No due date"}
           </span>
           <span>{activity.assignee_name || "Unassigned"}</span>
         </div>
@@ -491,7 +527,11 @@ export function WorkDetail({
             <button
               key={t}
               className={tab === t ? "active" : ""}
-              onClick={() => setTab(t)}
+              onClick={() => {
+                setTab(t);
+                setAction(null);
+                setError("");
+              }}
             >
               {t === "details"
                 ? "Overview & evidence"
@@ -511,7 +551,7 @@ export function WorkDetail({
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-base-content/55">
               Observation
             </p>
-            <p className="text-[13px] leading-relaxed">
+            <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
               {activity.problem_description}
             </p>
             {activity.corrective_action && (
@@ -519,8 +559,18 @@ export function WorkDetail({
                 <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-wider text-base-content/55">
                   Corrective action
                 </p>
-                <p className="text-[13px] leading-relaxed">
+                <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
                   {activity.corrective_action}
+                </p>
+              </>
+            )}
+            {activity.outcome_description && (
+              <>
+                <p className="mb-2 mt-6 text-[10px] font-semibold uppercase tracking-wider text-base-content/55">
+                  Outcome
+                </p>
+                <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words">
+                  {activity.outcome_description}
                 </p>
               </>
             )}
@@ -544,7 +594,7 @@ export function WorkDetail({
                     </div>
                     {evidence ? (
                       <img
-                        className="h-40 w-full object-cover"
+                        className="h-56 w-full object-contain bg-base-200"
                         src={evidence.file_url}
                         alt={`${kind === "before_photo" ? "Before" : "After"} evidence for ${activity.title}`}
                       />
@@ -569,8 +619,7 @@ export function WorkDetail({
                     {h.action_note || h.to_status.replaceAll("_", " ")}
                   </strong>
                   <p>
-                    {h.actor_name || "System"} ·{" "}
-                    {new Date(h.created_at).toLocaleString("en-IN")}
+                    {h.actor_name || "System"} · {dateTimeLabel(h.created_at)}
                   </p>
                 </div>
               </div>
@@ -579,6 +628,9 @@ export function WorkDetail({
         )}
         {tab === "comments" && (
           <div>
+            {!activity.comments.length && (
+              <p className="text-sm text-base-content/60">No comments yet.</p>
+            )}
             {activity.comments.map((c) => (
               <div
                 key={c.id}
@@ -590,27 +642,36 @@ export function WorkDetail({
                     {dateLabel(c.created_at)}
                   </span>
                 </p>
-                <p className="mt-2 text-xs leading-relaxed">{c.comment}</p>
+                <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  {c.comment}
+                </p>
+                {c.attachments?.map((image, index) => (
+                  <img
+                    key={index}
+                    src={image}
+                    className="mt-3 max-h-64 w-full object-contain rounded-lg"
+                    alt={`Comment photo ${index + 1}`}
+                  />
+                ))}
               </div>
             ))}
             {canComment && (
               <form
-                className="mt-4 flex gap-2"
+                className="mt-4 space-y-3"
                 onSubmit={async (e) => {
                   e.preventDefault();
-                  if (!comment.trim()) return;
+                  if (!comment.trim() || busy || uploading) return;
                   setBusy(true);
                   setError("");
                   try {
-                    const saved = await addActivityComment(
+                    await addActivityComment(
                       activity.id,
                       comment.trim(),
+                      commentPhoto ? [commentPhoto] : [],
                     );
-                    onUpdate({
-                      ...activity,
-                      comments: [...activity.comments, saved],
-                    });
+                    onUpdate(await fetchActivity(activity.id));
                     setComment("");
+                    setCommentPhoto("");
                   } catch (err) {
                     setError((err as Error).message);
                   } finally {
@@ -618,17 +679,38 @@ export function WorkDetail({
                   }
                 }}
               >
-                <input
-                  className="input"
+                <label
+                  htmlFor="work-comment"
+                  className="block text-sm font-medium"
+                >
+                  Comment
+                </label>
+                <textarea
+                  id="work-comment"
+                  className="textarea w-full"
                   aria-label="Comment"
+                  rows={3}
+                  maxLength={5000}
+                  disabled={busy}
                   placeholder="Add a comment for your team…"
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   required
                 />
-                <button className="btn" disabled={busy || !comment.trim()}>
+                <EvidenceInput
+                  value={commentPhoto}
+                  onChange={setCommentPhoto}
+                  label="Comment photo (optional)"
+                  onPendingChange={(pending) =>
+                    setUploads((old) => ({ ...old, comment: pending }))
+                  }
+                />
+                <button
+                  className="btn"
+                  disabled={busy || uploading || !comment.trim()}
+                >
                   <MessageSquare />
-                  Post
+                  {busy ? "Posting…" : "Post comment"}
                 </button>
               </form>
             )}
@@ -650,6 +732,7 @@ export function WorkDetail({
                   corrective_action: String(form.get("correction")),
                   outcome_description: String(form.get("outcome")),
                   after_photo_url: photo,
+                  before_photo_url: beforePhoto || undefined,
                 }),
               );
             }}
@@ -672,9 +755,27 @@ export function WorkDetail({
                 placeholder="Describe the result"
               />
             </label>
-            <EvidenceInput value={photo} onChange={setPhoto} />
+            <EvidenceInput
+              value={beforePhoto}
+              onChange={setBeforePhoto}
+              label="Before photo (optional)"
+              onPendingChange={(pending) =>
+                setUploads((old) => ({ ...old, before: pending }))
+              }
+            />
+            <EvidenceInput
+              value={photo}
+              onChange={setPhoto}
+              label="After photo"
+              onPendingChange={(pending) =>
+                setUploads((old) => ({ ...old, after: pending }))
+              }
+            />
             <div className="mt-4 flex gap-2">
-              <button className="btn btn-primary" disabled={busy}>
+              <button
+                className="btn btn-primary"
+                disabled={busy || uploading || !photo}
+              >
                 Submit for review
               </button>
               <button

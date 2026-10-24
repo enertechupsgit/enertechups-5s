@@ -1,26 +1,34 @@
-export type FiveSCategory = 
-  | 'sort_seiri' 
-  | 'set_in_order_seiton' 
-  | 'shine_seiso' 
-  | 'standardize_seiketsu' 
-  | 'sustain_shitsuke';
+export type FiveSCategory =
+  | "sort_seiri"
+  | "set_in_order_seiton"
+  | "shine_seiso"
+  | "standardize_seiketsu"
+  | "sustain_shitsuke";
 
-export type ActivityStatus = 
-  | 'draft' 
-  | 'assigned' 
-  | 'in_progress' 
-  | 'submitted_for_review' 
-  | 'approved' 
-  | 'rejected' 
-  | 'completed';
+export type ActivityStatus =
+  | "draft"
+  | "assigned"
+  | "in_progress"
+  | "submitted_for_review"
+  | "approved"
+  | "rejected"
+  | "completed";
 
-export type PriorityLevel = 'low' | 'medium' | 'high' | 'critical';
+export type PriorityLevel = "low" | "medium" | "high" | "critical";
 
-export type MediaType = 'before_photo' | 'after_photo' | 'action_step' | 'supporting_doc';
+export type MediaType =
+  "before_photo" | "after_photo" | "action_step" | "supporting_doc";
 
-export type RedTagDisposition = 'pending' | 'relocate' | 'scrap' | 'return_to_vendor' | 'hold_for_evaluation';
+export type RedTagDisposition =
+  "pending" | "relocate" | "scrap" | "return_to_vendor" | "hold_for_evaluation";
 
-export type UserRole = 'operator' | 'supervisor' | 'auditor' | 'plant_manager' | 'management' | 'zonal_leader';
+export type UserRole =
+  | "operator"
+  | "supervisor"
+  | "auditor"
+  | "plant_manager"
+  | "management"
+  | "zonal_leader";
 
 export interface ZonalLeader {
   id: string;
@@ -66,6 +74,7 @@ export interface ReportSubmissionPayload {
   corrective_action: string;
   outcome_description?: string;
   after_photo_url: string;
+  before_photo_url?: string;
   benefits_safety?: boolean;
   benefits_space_sqft?: number;
   benefits_time_seconds?: number;
@@ -74,7 +83,7 @@ export interface ReportSubmissionPayload {
 }
 
 export interface ReportReviewPayload {
-  decision: 'approve' | 'reject';
+  decision: "approve" | "reject";
   rejection_reason?: string;
 }
 
@@ -109,6 +118,7 @@ export interface EvidenceMedia {
 }
 
 export interface ActivityHistory {
+  actor_id?: string | null;
   id: string;
   activity_id: string;
   actor_name?: string;
@@ -119,6 +129,7 @@ export interface ActivityHistory {
 }
 
 export interface ActivityComment {
+  attachments?: string[];
   id: string;
   activity_id: string;
   author_name: string;
@@ -225,7 +236,7 @@ export interface ZoneMetric {
   score: number;
   active_tasks: number;
   overdue_tasks: number;
-  status: 'excellent' | 'good' | 'needs_attention';
+  status: "excellent" | "good" | "needs_attention";
 }
 
 export interface DashboardStats {
@@ -242,7 +253,11 @@ export interface DashboardStats {
   avg_red_tag_age_days: number;
   zones: ZoneMetric[];
   category_counts: Record<string, number>;
-  completion_trend: Array<{ month: string; completion_rate: number; score: number }>;
+  completion_trend: Array<{
+    month: string;
+    completion_rate: number;
+    score: number;
+  }>;
 }
 
 export interface RedTag {
@@ -265,6 +280,7 @@ export interface RedTag {
 }
 
 export interface AuditRun {
+  photos?: string[];
   id: string;
   checklist_id?: string;
   plant_id: string;

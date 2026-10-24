@@ -942,7 +942,11 @@ export default function App() {
           activity={selected}
           plant={plant}
           canReview={
-            can("work.review") && selected.assigned_to !== identity?.id
+            can("work.review") &&
+            selected.assigned_to !== identity?.id &&
+            selected.history.find(
+              (entry) => entry.to_status === "submitted_for_review",
+            )?.actor_id !== identity?.id
           }
           canExecute={can("work.execute")}
           canComment={can("work.comment")}

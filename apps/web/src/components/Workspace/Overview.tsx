@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import type { Activity, AuditRun, Plant, RedTag } from "../../types";
 import { Empty } from "./Shared";
-import { dateLabel, isComplete, pillars, useNow } from "./utils";
+import { timestamp, dateLabel, isComplete, pillars, useNow } from "./utils";
 
 interface Props {
   plant: Plant;
@@ -38,15 +38,13 @@ export function Overview({
   const cutoff = now - days * 86400000;
   const periodAudits = audits
     .filter((a) => new Date(a.conducted_at).getTime() >= cutoff)
-    .sort((a, b) => Date.parse(a.conducted_at) - Date.parse(b.conducted_at));
+    .sort((a, b) => timestamp(a.conducted_at) - timestamp(b.conducted_at));
   const average = periodAudits.length
     ? periodAudits.reduce((sum, a) => sum + a.score_percentage, 0) /
       periodAudits.length
     : null;
   const open = activities.filter((a) => !isComplete(a.status));
-  const overdue = open.filter(
-    (a) => a.due_date && Date.parse(a.due_date) < now,
-  );
+  const overdue = open.filter((a) => a.due_date && timestamp(a.due_date) < now);
   const review = activities.filter((a) => a.status === "submitted_for_review");
   const zones = plant.departments.flatMap((d) =>
     d.zones.map((z) => ({ ...z, department: d.name })),
@@ -115,13 +113,13 @@ export function Overview({
       score_percentage: Math.round((bucket.total / bucket.count) * 10) / 10,
       zone_name: `Daily mean · ${bucket.count} assessments`,
     }));
-  const firstTime = recent.length ? Date.parse(recent[0].conducted_at) : 0;
+  const firstTime = recent.length ? timestamp(recent[0].conducted_at) : 0;
   const span =
     recent.length > 1
-      ? Date.parse(recent[recent.length - 1].conducted_at) - firstTime
+      ? timestamp(recent[recent.length - 1].conducted_at) - firstTime
       : 1;
   const points = recent.map((a) => [
-    45 + ((Date.parse(a.conducted_at) - firstTime) / span) * 505,
+    45 + ((timestamp(a.conducted_at) - firstTime) / span) * 505,
     165 - (a.score_percentage / 100) * 140,
   ]);
   const path = points.map(([x, y], i) => `${i ? "L" : "M"}${x},${y}`).join(" ");
@@ -267,8 +265,7 @@ export function Overview({
                       .filter((a) => a.zone_id === zone.id)
                       .sort(
                         (a, b) =>
-                          Date.parse(b.conducted_at) -
-                          Date.parse(a.conducted_at),
+                          timestamp(b.conducted_at) - timestamp(a.conducted_at),
                       )[0];
                     return (
                       <tr key={zone.id}>
