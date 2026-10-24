@@ -153,7 +153,6 @@ export function Overview({
             <div className="surface-head">
               <div>
                 <h2>5S performance over time</h2>
-                <p>A consistent standard. A measurable improvement.</p>
               </div>
               <span className="chart-legend">
                 <i className="status-dot positive" />
@@ -235,7 +234,7 @@ export function Overview({
               <span>
                 {recent.length > 1
                   ? `${recent.length} recorded days · daily average across assessed zones (IST)`
-                  : "Scores are calculated from saved assessments. No estimated trend data."}
+                  : "No assessments yet."}
               </span>
             </div>
           </section>
@@ -243,7 +242,6 @@ export function Overview({
             <div className="surface-head">
               <div>
                 <h2>Zone performance</h2>
-                <p>Know where your attention makes a difference.</p>
               </div>
               <button
                 className="text-link"
@@ -342,7 +340,6 @@ export function Overview({
             <div className="surface-head">
               <div>
                 <h2>Performance by pillar</h2>
-                <p>The five habits behind a better workplace.</p>
               </div>
               <span className="metric-icon">
                 <ClipboardCheck size={15} />
@@ -390,7 +387,6 @@ export function Overview({
             <div className="surface-head">
               <div>
                 <h2>Needs your attention</h2>
-                <p>Small actions. Lasting improvements.</p>
               </div>
               <span className="badge badge-ghost">
                 {review.length +
@@ -437,15 +433,6 @@ export function Overview({
               </button>
             </div>
           </section>
-          <div className="flex items-start gap-3 px-2 py-1 text-[10px] leading-relaxed text-base-content/55">
-            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-success" />
-            <p>
-              <strong className="block font-medium text-base-content/75">
-                Better every shift.
-              </strong>
-              Keep standards visible, actions owned, and improvements verified.
-            </p>
-          </div>
         </div>
       </div>
     </>

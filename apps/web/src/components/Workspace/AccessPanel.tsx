@@ -111,10 +111,6 @@ export function AccessPanel({
         <div className="surface-head">
           <div>
             <h2>Your active access</h2>
-            <p>
-              Menu visibility and API authorization follow the same role
-              permissions.
-            </p>
           </div>
           <LockKeyhole size={20} className="text-primary" />
         </div>
@@ -136,8 +132,7 @@ export function AccessPanel({
                 : "Assigned plant"}
           </p>
           <p className="mt-2 text-xs text-base-content/65">
-            <strong>Rules:</strong> no self-approval · out-of-scope records
-            blocked · actor recorded from session
+            <strong>Rules:</strong> you cannot approve your own work.
           </p>
         </div>
       </section>
@@ -145,7 +140,6 @@ export function AccessPanel({
         <div className="surface-head">
           <div>
             <h2>What I can do</h2>
-            <p>Permissions are evaluated on every API request.</p>
           </div>
         </div>
         <div className="overflow-x-auto">

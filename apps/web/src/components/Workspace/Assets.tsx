@@ -266,7 +266,7 @@ export function Assets({
                 setAssets((previous) => [...previous, asset]);
                 setSelectedId(asset.id);
                 setAdding(false);
-                notify("Asset registered and saved to the database");
+                notify("Asset registered");
               } catch (err) {
                 setError((err as Error).message);
               } finally {

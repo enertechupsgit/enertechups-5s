@@ -104,7 +104,7 @@ export function EvidenceInput({
               : "Take a photo or upload evidence"}
           </span>
           <span className="mt-1 block text-[10px] text-base-content/60">
-            JPEG, PNG or WebP · up to 3 MB · local development storage
+            JPEG, PNG or WebP · up to 3 MB
           </span>
         </span>
         <Upload size={15} />

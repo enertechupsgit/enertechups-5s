@@ -5,6 +5,12 @@
   --brand-soft: #eef2ff;
   --brand-border: #dce3f7;
 }
+.workspace-context {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #617194;
+  line-height: 1.5;
+}
 .side-rail {
   overflow-y: auto;
   overscroll-behavior: contain;

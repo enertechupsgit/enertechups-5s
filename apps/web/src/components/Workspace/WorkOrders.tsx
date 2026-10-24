@@ -315,10 +315,6 @@ export function NewWork({
         }}
       >
         <div className="dialog-body">
-          <p className="mb-6 text-xs leading-relaxed text-base-content/60">
-            Turn an observation into a clear action. Add a location, an owner,
-            and the standard you want to improve.
-          </p>
           {error && (
             <div role="alert" className="form-error">
               {error}

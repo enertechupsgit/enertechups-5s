@@ -1,12 +1,10 @@
 import {
   ArrowRight,
   ArrowUpRight,
-  Camera,
   CheckCheck,
   ClipboardCheck,
   ClipboardList,
   Clock3,
-  MapPin,
   Target,
   Tag,
 } from "lucide-react";
@@ -28,7 +26,6 @@ export function LeaderWorkspace({
   redTags,
   onOpen,
   onNavigate,
-  onCreate,
 }: {
   leader: ZonalLeader;
   plant: Plant;
@@ -37,7 +34,6 @@ export function LeaderWorkspace({
   redTags: RedTag[];
   onOpen: (activity: Activity) => void;
   onNavigate: (tab: string) => void;
-  onCreate: () => void;
 }) {
   const now = useNow();
   const zone = plant.departments
@@ -60,50 +56,8 @@ export function LeaderWorkspace({
       (a.due_date ? Date.parse(a.due_date) : Infinity) -
       (b.due_date ? Date.parse(b.due_date) : Infinity),
   );
-  const department = plant.departments.find((d) =>
-    d.zones.some((z) => z.id === zone?.id),
-  );
   return (
     <>
-      <section className="leader-welcome">
-        <div>
-          <div className="eyebrow">YOUR ZONE. YOUR IMPACT.</div>
-          <h2>
-            Good{" "}
-            {new Date(now).getHours() < 12
-              ? "morning"
-              : new Date(now).getHours() < 17
-                ? "afternoon"
-                : "evening"}
-            , {leader.first_name}.
-          </h2>
-          <p>
-            You have{" "}
-            <strong>
-              {open.length} open {open.length === 1 ? "action" : "actions"}
-            </strong>{" "}
-            to move forward. Let’s make your zone a little better today.
-          </p>
-          <div className="leader-location">
-            <MapPin size={14} />
-            <span>{zone?.name || "No zone assigned"}</span>
-            <span className="opacity-40">/</span>
-            <span>{department?.name || plant.code}</span>
-          </div>
-        </div>
-        <div className="leader-identity">
-          <span className="initials">
-            {leader.first_name[0]}
-            {leader.last_name[0]}
-          </span>
-          <div>
-            <strong>
-              {leader.first_name} {leader.last_name}
-            </strong>
-            <small>Zonal leader · {zone?.code || "Unassigned"}</small>
-          </div>
-        </div>
-      </section>
       <div className="metric-grid">
         {[
           {
@@ -165,7 +119,6 @@ export function LeaderWorkspace({
             <div className="surface-head">
               <div>
                 <h2>My next actions</h2>
-                <p>Start work, capture the change, and send it for review.</p>
               </div>
               <button
                 className="text-link"
@@ -224,7 +177,6 @@ export function LeaderWorkspace({
             <div className="surface-head">
               <div>
                 <h2>My submitted reports</h2>
-                <p>Follow the review without chasing an update.</p>
               </div>
               <span className="badge badge-ghost">{waiting.length}</span>
             </div>
@@ -250,8 +202,7 @@ export function LeaderWorkspace({
               ))
             ) : (
               <div className="px-5 pb-6 pt-2 text-xs text-base-content/55">
-                No reports waiting for review. Submit a completed action with
-                after evidence to start the review.
+                No reports awaiting review.
               </div>
             )}
           </section>
@@ -260,52 +211,7 @@ export function LeaderWorkspace({
           <section className="surface">
             <div className="surface-head">
               <div>
-                <h2>From task to verified improvement</h2>
-                <p>Your everyday 5S workflow.</p>
-              </div>
-            </div>
-            <div className="px-5 pb-6">
-              {[
-                {
-                  icon: ClipboardList,
-                  title: "Understand the action",
-                  text: "Check the observation, location, and expected result.",
-                },
-                {
-                  icon: Camera,
-                  title: "Show the improvement",
-                  text: "Capture before and after photos. Explain what changed.",
-                },
-                {
-                  icon: ClipboardCheck,
-                  title: "Submit for verification",
-                  text: "Your supervisor approves or requests changes.",
-                },
-              ].map((step, i) => (
-                <div key={step.title} className="mb-5 flex gap-3 last:mb-0">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-success/8 text-success">
-                    <step.icon size={16} />
-                  </span>
-                  <div>
-                    <strong className="text-[11px] font-medium">
-                      <span className="mr-1 text-base-content/40">
-                        0{i + 1}
-                      </span>{" "}
-                      {step.title}
-                    </strong>
-                    <p className="mt-1 text-[10px] leading-relaxed text-base-content/55">
-                      {step.text}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-          <section className="surface">
-            <div className="surface-head">
-              <div>
                 <h2>My zone’s red tags</h2>
-                <p>Keep the unnecessary from becoming permanent.</p>
               </div>
               <Tag size={17} className="text-warning" />
             </div>
@@ -332,19 +238,6 @@ export function LeaderWorkspace({
                 onClick={() => onNavigate("redtags")}
               >
                 Open my zone register <ArrowRight />
-              </button>
-            </div>
-          </section>
-          <section className="surface">
-            <div className="surface-head">
-              <div>
-                <h2>Spot an opportunity?</h2>
-                <p>A better workplace begins with an observation.</p>
-              </div>
-            </div>
-            <div className="px-5 pb-5">
-              <button className="btn w-full" onClick={onCreate}>
-                Raise a 5S action <ArrowRight />
               </button>
             </div>
           </section>

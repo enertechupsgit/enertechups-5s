@@ -744,8 +744,7 @@ export function PeopleWorkspace({
           >
             <div className="dialog-body">
               <p className="mb-5 text-xs leading-relaxed text-base-content/60">
-                This creates an operational profile. It does not create login
-                credentials or grant access to the local sample role switcher.
+                Adds a team profile. Login access is set up separately.
               </p>
               {error && (
                 <p className="form-error" role="alert">

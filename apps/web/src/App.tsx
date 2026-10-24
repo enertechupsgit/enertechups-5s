@@ -113,20 +113,6 @@ const navigation = [
     permission: "access.read",
   },
 ];
-const descriptions: Record<string, string> = {
-  overview:
-    "Performance, ownership, and verified improvement across your plant.",
-  work_orders:
-    "Clear ownership, practical actions, and a complete improvement history.",
-  audits: "Measure observed conditions and make progress visible.",
-  redtags: "Identify unnecessary items and track each disposition.",
-  locations: "Departments, zones, and accountable workplace ownership.",
-  assets: "Equipment, assigned locations, and recorded operating status.",
-  standards: "A shared understanding of what good looks like.",
-  reporting: "Measured results and reports within your assigned scope.",
-  settings: "Operational profiles and the people responsible for each zone.",
-  access: "Understand your permissions, scope, and approval boundaries.",
-};
 function initialTab() {
   const key = location.hash.slice(1);
   return navigation.some((n) => n.id === key) ? key : "overview";
@@ -338,9 +324,7 @@ export default function App() {
       setRoleDialog(false);
       navigate("overview");
       await loadData(actor);
-      notify(
-        `Switched to ${roleLabels[actor.role]} · permissions applied by the server`,
-      );
+      notify(`Switched to ${roleLabels[actor.role]}`);
     } catch (err) {
       setSwitchError((err as Error).message);
       setError("Role switch failed. Retry or return to the current account.");
@@ -383,7 +367,7 @@ export default function App() {
     a.download = `enertech-${identity?.role}-work-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    notify("Scoped work-order report exported");
+    notify("Report exported");
   };
   const review = activities.filter((a) => a.status === "submitted_for_review");
   const open = activities.filter((a) => !isComplete(a.status));
@@ -689,19 +673,17 @@ export default function App() {
         <main id="main-content" tabIndex={-1} className="page-content">
           <div className="page-heading">
             <div>
-              <div className="eyebrow">
-                {limited
-                  ? "MY RESPONSIBILITY"
-                  : identity?.role === "director"
-                    ? "EXECUTIVE VISIBILITY"
-                    : "5S OPERATIONS"}
-              </div>
               <h1>{title}</h1>
-              <p className="page-subtitle">
-                {tab === "overview" && limited
-                  ? "Your work, evidence, and zone progress — without the administrative clutter."
-                  : descriptions[tab]}
-              </p>
+              {identity && (
+                <p className="workspace-context">
+                  {roleLabels[identity.role]}
+                  <span aria-hidden="true"> · </span>
+                  {limited
+                    ? identity.zone_name || "No zone assigned"
+                    : plant?.name || "Workspace"}
+                  {identity.role === "director" ? " · Read only" : ""}
+                </p>
+              )}
             </div>
             <div className="page-tools">
               {["overview", "reporting"].includes(tab) && !limited && (
@@ -748,25 +730,6 @@ export default function App() {
               )}
             </div>
           </div>
-          {identity && (
-            <div className="access-context">
-              <span>
-                <ShieldCheck size={14} />
-                <strong>{roleLabels[identity.role]}</strong>
-                <span className="context-divider">/</span>
-                {limited
-                  ? identity.zone_name || "No zone assigned"
-                  : "Authorized plant data"}
-                {identity.role === "director" && (
-                  <span className="read-only-label">Read-only oversight</span>
-                )}
-              </span>
-              <button className="text-link" onClick={() => navigate("access")}>
-                What can I do?
-                <ArrowRight />
-              </button>
-            </div>
-          )}
           {error && (
             <div
               className="form-error flex items-center justify-between gap-3"
@@ -781,13 +744,13 @@ export default function App() {
           {loading ? (
             <div className="surface loading-workspace">
               <LoaderCircle className="animate-spin" size={26} />
-              <p>Loading authorized workspace…</p>
+              <p>Loading workspace…</p>
             </div>
           ) : !allowed ? (
             <section className="surface">
               <Empty
                 title="This view isn’t available to your role"
-                text="Your role permissions are enforced by the server. Return to your workspace or inspect your access."
+                text="Your role does not have access to this page."
                 action={
                   <button className="btn" onClick={() => navigate("overview")}>
                     Back to my workspace
@@ -815,7 +778,6 @@ export default function App() {
                     redTags={tags}
                     onOpen={setSelected}
                     onNavigate={navigate}
-                    onCreate={() => setNewWork(true)}
                   />
                 ) : (
                   <Overview
@@ -956,10 +918,6 @@ export default function App() {
           )}
           <footer className="footer">
             <span>EnerTech UPS Pvt. Ltd. · 5S Operations</span>
-            <span>
-              <ShieldCheck size={12} />
-              Role and record scope enforced by API
-            </span>
             <button className="text-link" disabled={loading} onClick={refresh}>
               <RefreshCw size={12} />
               Refresh
@@ -1081,23 +1039,12 @@ export default function App() {
               </>
             ) : (
               <>
-                <h3 className="text-lg font-semibold">
-                  EnerTech 5S · local evaluation
-                </h3>
+                <h3 className="text-lg font-semibold">Workspace help</h3>
                 <p className="mt-4 text-sm leading-7 text-base-content/65">
-                  Your selected account has a server session. Permissions, plant
-                  scope, zone scope, ownership, and independent review are
-                  checked by the API.
+                  Open a work order to record progress and evidence, then submit
+                  it for review. Use My access &amp; roles to check the actions
+                  available to your account.
                 </p>
-                <div className="access-notice mt-5">
-                  <ShieldCheck size={20} />
-                  <p>
-                    Sample role switching is available only in local-preview
-                    mode. Production identity-provider onboarding, managed
-                    PostgreSQL, private media storage, and native offline
-                    applications remain separate release work.
-                  </p>
-                </div>
                 <button
                   className="btn mt-5"
                   onClick={() => {
@@ -1105,7 +1052,7 @@ export default function App() {
                     navigate("access");
                   }}
                 >
-                  Inspect my access
+                  My access & roles
                   <ArrowRight />
                 </button>
               </>
