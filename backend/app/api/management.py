@@ -12,15 +12,17 @@ from app.schemas.schemas import (
     ZonalLeaderResponse
 )
 
+from app.core.access import Actor, get_actor, scope_query
+
 router = APIRouter(prefix="/management", tags=["Management Administration"])
 
 
 @router.get("/zonal-leaders", response_model=List[ZonalLeaderResponse])
-async def list_zonal_leaders(plant_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def list_zonal_leaders(plant_id: Optional[str] = None, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """List all active Zonal Leaders with their assigned zone and live task statistics."""
-    query = select(Profile).where(
+    query = select(Profile).where(Profile.plant_id.in_(actor.plant_ids),
         Profile.is_active == True,
-        Profile.role.in_([UserRole.ZONAL_LEADER.value, UserRole.OPERATOR.value, UserRole.SUPERVISOR.value])
+        Profile.role.in_([UserRole.ZONAL_LEADER.value, UserRole.OPERATOR.value, UserRole.SUPERVISOR.value, UserRole.AUDITOR.value, UserRole.MANAGEMENT.value])
     )
     if plant_id:
         query = query.where(Profile.plant_id == plant_id)
@@ -89,8 +91,10 @@ async def list_zonal_leaders(plant_id: Optional[str] = None, db: AsyncSession = 
 
 
 @router.post("/zonal-leaders", response_model=ZonalLeaderResponse)
-async def create_zonal_leader(payload: ZonalLeaderCreate, db: AsyncSession = Depends(get_db)):
+async def create_zonal_leader(payload: ZonalLeaderCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management adds a new Zonal Leader and optionally links them to a Zone."""
+    if payload.role not in [None, "zonal_leader", "operator", "supervisor", "auditor"]:
+        raise HTTPException(403, "This role cannot be granted through people management")
     # Check if email exists
     existing = await db.execute(select(Profile).where(Profile.email == payload.email))
     if existing.scalar_one_or_none():
@@ -151,7 +155,7 @@ async def create_zonal_leader(payload: ZonalLeaderCreate, db: AsyncSession = Dep
 
 
 @router.put("/zonal-leaders/{leader_id}", response_model=ZonalLeaderResponse)
-async def update_zonal_leader(leader_id: str, payload: ZonalLeaderUpdate, db: AsyncSession = Depends(get_db)):
+async def update_zonal_leader(leader_id: str, payload: ZonalLeaderUpdate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management edits a Zonal Leader, reassigns zone, or toggles status."""
     res = await db.execute(select(Profile).where(Profile.id == leader_id))
     profile = res.scalar_one_or_none()
@@ -167,6 +171,8 @@ async def update_zonal_leader(leader_id: str, payload: ZonalLeaderUpdate, db: As
     if payload.phone_number is not None:
         profile.phone_number = payload.phone_number
     if payload.role:
+        if payload.role not in ["zonal_leader", "operator", "supervisor", "auditor"]:
+            raise HTTPException(403, "This role cannot be granted through people management")
         profile.role = payload.role
     if payload.is_active is not None:
         profile.is_active = payload.is_active
@@ -187,6 +193,10 @@ async def update_zonal_leader(leader_id: str, payload: ZonalLeaderUpdate, db: As
             z_res = await db.execute(select(Zone).where(Zone.id == payload.assigned_zone_id))
             new_zone = z_res.scalar_one_or_none()
             if new_zone:
+                previous = await db.get(Zone, profile.assigned_zone_id) if profile.assigned_zone_id else None
+                if previous and previous.leader_id == profile.id:
+                    previous.leader_id = None
+                    previous.leader_name = None
                 profile.assigned_zone_id = new_zone.id
                 profile.assigned_zone_name = new_zone.name
                 new_zone.leader_id = profile.id
@@ -233,8 +243,8 @@ async def update_zonal_leader(leader_id: str, payload: ZonalLeaderUpdate, db: As
 
 
 @router.delete("/zonal-leaders/{leader_id}")
-async def delete_zonal_leader(leader_id: str, db: AsyncSession = Depends(get_db)):
-    """Management completely deletes a Zonal Leader from the database."""
+async def delete_zonal_leader(leader_id: str, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
+    """Deactivate an operational account while retaining audit history."""
     res = await db.execute(select(Profile).where(Profile.id == leader_id))
     profile = res.scalar_one_or_none()
     if not profile:
@@ -246,33 +256,7 @@ async def delete_zonal_leader(leader_id: str, db: AsyncSession = Depends(get_db)
         z.leader_id = None
         z.leader_name = None
 
-    # 2. Unlink any activities assigned to or supervised by this leader
-    acts_res = await db.execute(select(Activity).where(or_(Activity.assigned_to == leader_id, Activity.supervisor_id == leader_id, Activity.created_by == leader_id)))
-    for a in acts_res.scalars().all():
-        if a.assigned_to == leader_id:
-            a.assigned_to = None
-        if a.supervisor_id == leader_id:
-            a.supervisor_id = None
-        if a.created_by == leader_id:
-            a.created_by = None
-
-    # 3. Unlink any red tags
-    tags_res = await db.execute(select(RedTag).where(or_(RedTag.logged_by == leader_id, RedTag.disposition_by == leader_id)))
-    for t in tags_res.scalars().all():
-        if t.logged_by == leader_id:
-            t.logged_by = None
-            t.logged_by_name = None
-        if t.disposition_by == leader_id:
-            t.disposition_by = None
-
-    # 4. Unlink any audit runs
-    audits_res = await db.execute(select(AuditRun).where(AuditRun.auditor_id == leader_id))
-    for ar in audits_res.scalars().all():
-        ar.auditor_id = None
-        ar.auditor_name = None
-
-    # 5. Delete profile completely
-    leader_name = f"{profile.first_name} {profile.last_name}"
-    await db.delete(profile)
+    # Deactivate rather than erase authorship, historical assignments, or audit evidence.
+    profile.is_active = False
     await db.commit()
-    return {"message": f"Leader {leader_name} deleted completely.", "deleted_id": leader_id}
+    return {"message": f"{profile.first_name} {profile.last_name} deactivated; historical records retained", "deactivated_id": leader_id}

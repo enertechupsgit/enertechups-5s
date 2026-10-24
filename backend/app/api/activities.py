@@ -13,10 +13,47 @@ from app.models.models import (
 from app.schemas.schemas import (
     ActivityCreate, ActivityUpdate, ActivityResponse, ActivitySubmitReview,
     ActivityReviewDecision, EvidenceMediaCreate, EvidenceMediaResponse,
-    ActivityCommentCreate, ActivityCommentResponse
+    ActivityCommentCreate, ActivityCommentResponse, ReportSubmissionRequest
 )
 
+from app.core.access import Actor, get_actor, scope_query
+
 router = APIRouter(prefix="/activities", tags=["5S Activities"])
+
+@router.post("/{activity_id}/start", response_model=ActivityResponse)
+async def start_activity(activity_id: str, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
+    activity = await db.get(Activity, activity_id)
+    if not activity:
+        raise HTTPException(404, "Activity not found")
+    if activity.status not in ["draft", "assigned", "rejected"]:
+        raise HTTPException(409, "Only open or changes-requested work can be started")
+    previous = activity.status
+    activity.status = "in_progress"
+    db.add(ActivityHistory(activity_id=activity_id, actor_id=actor.profile.id, actor_name=actor.name, from_status=previous, to_status="in_progress", action_note="Work started"))
+    await db.commit()
+    return await build_activity_response(activity, db)
+
+@router.post("/{activity_id}/report", response_model=ActivityResponse)
+async def submit_report(activity_id: str, payload: ReportSubmissionRequest, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
+    activity = await db.get(Activity, activity_id)
+    if not activity:
+        raise HTTPException(404, "Activity not found")
+    if activity.status not in ["draft", "assigned", "in_progress", "rejected"]:
+        raise HTTPException(409, "This activity is not open for submission")
+    if not payload.corrective_action.strip() or not payload.after_photo_url.strip():
+        raise HTTPException(422, "Corrective action and after-photo evidence are required")
+    previous = activity.status
+    activity.corrective_action = payload.corrective_action.strip()
+    activity.outcome_description = payload.outcome_description
+    for field in ["benefits_safety", "benefits_space_sqft", "benefits_time_seconds", "benefits_cost_savings", "benefits_summary"]:
+        setattr(activity, field, getattr(payload, field))
+    activity.status = "submitted_for_review"
+    activity.submitted_at = datetime.utcnow()
+    activity.rejection_reason = None
+    db.add(EvidenceMedia(activity_id=activity_id, media_type="after_photo", file_name="after-evidence.jpg", file_url=payload.after_photo_url))
+    db.add(ActivityHistory(activity_id=activity_id, actor_id=actor.profile.id, actor_name=actor.name, from_status=previous, to_status="submitted_for_review", action_note="Corrective action submitted with after evidence"))
+    await db.commit()
+    return await build_activity_response(activity, db)
 
 async def build_activity_response(act: Activity, db: AsyncSession) -> dict:
     # Fetch evidence
@@ -88,9 +125,9 @@ async def list_activities(
     category: Optional[str] = None,
     priority: Optional[str] = None,
     assigned_to: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)
 ):
-    query = select(Activity).order_by(desc(Activity.created_at))
+    query = scope_query(select(Activity).order_by(desc(Activity.created_at)), Activity, actor)
     if plant_id:
         query = query.where(Activity.plant_id == plant_id)
     if zone_id:
@@ -114,7 +151,7 @@ async def list_activities(
 
 
 @router.post("", response_model=ActivityResponse)
-async def create_activity(payload: ActivityCreate, db: AsyncSession = Depends(get_db)):
+async def create_activity(payload: ActivityCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     # Generate sequential or unique activity number
     year = datetime.utcnow().year
     rand_seq = random.randint(1000, 9999)
@@ -159,6 +196,7 @@ async def create_activity(payload: ActivityCreate, db: AsyncSession = Depends(ge
         priority=payload.priority,
         status=initial_status,
         assigned_to=payload.assigned_to,
+        created_by=actor.profile.id,
         supervisor_id=payload.supervisor_id,
         due_date=payload.due_date,
         benefits_safety=payload.benefits_safety,
@@ -173,7 +211,7 @@ async def create_activity(payload: ActivityCreate, db: AsyncSession = Depends(ge
     # Record history
     history_entry = ActivityHistory(
         activity_id=new_activity.id,
-        actor_name="Management Web App",
+        actor_id=actor.profile.id, actor_name=actor.name,
         from_status=None,
         to_status=initial_status,
         action_note="5S Activity created and registered."
@@ -198,7 +236,7 @@ async def create_activity(payload: ActivityCreate, db: AsyncSession = Depends(ge
 
 
 @router.get("/{activity_id}", response_model=ActivityResponse)
-async def get_activity(activity_id: str, db: AsyncSession = Depends(get_db)):
+async def get_activity(activity_id: str, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     if not activity:
@@ -207,7 +245,7 @@ async def get_activity(activity_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{activity_id}", response_model=ActivityResponse)
-async def update_activity(activity_id: str, payload: ActivityUpdate, db: AsyncSession = Depends(get_db)):
+async def update_activity(activity_id: str, payload: ActivityUpdate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     if not activity:
@@ -224,7 +262,7 @@ async def update_activity(activity_id: str, payload: ActivityUpdate, db: AsyncSe
 
 
 @router.post("/{activity_id}/evidence", response_model=EvidenceMediaResponse)
-async def upload_evidence(activity_id: str, payload: EvidenceMediaCreate, db: AsyncSession = Depends(get_db)):
+async def upload_evidence(activity_id: str, payload: EvidenceMediaCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     if not activity:
@@ -258,7 +296,7 @@ async def upload_evidence(activity_id: str, payload: EvidenceMediaCreate, db: As
 
 
 @router.post("/{activity_id}/submit", response_model=ActivityResponse)
-async def submit_for_review(activity_id: str, payload: ActivitySubmitReview, db: AsyncSession = Depends(get_db)):
+async def submit_for_review(activity_id: str, payload: ActivitySubmitReview, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     if not activity:
@@ -285,7 +323,7 @@ async def submit_for_review(activity_id: str, payload: ActivitySubmitReview, db:
 
     history = ActivityHistory(
         activity_id=activity.id,
-        actor_name=payload.actor_name,
+        actor_id=actor.profile.id, actor_name=actor.name,
         from_status=old_status,
         to_status=ActivityStatus.SUBMITTED_FOR_REVIEW.value,
         action_note=payload.submission_note or "Submitted for supervisor review with before & after evidence."
@@ -298,11 +336,14 @@ async def submit_for_review(activity_id: str, payload: ActivitySubmitReview, db:
 
 
 @router.post("/{activity_id}/review", response_model=ActivityResponse)
-async def review_activity(activity_id: str, payload: ActivityReviewDecision, db: AsyncSession = Depends(get_db)):
+async def review_activity(activity_id: str, payload: ActivityReviewDecision, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     if not activity:
         raise HTTPException(status_code=404, detail="Activity not found")
+
+    if activity.status != ActivityStatus.SUBMITTED_FOR_REVIEW.value:
+        raise HTTPException(409, "Only submitted activities can be reviewed")
 
     old_status = activity.status
     activity.reviewed_at = datetime.utcnow()
@@ -315,7 +356,7 @@ async def review_activity(activity_id: str, payload: ActivityReviewDecision, db:
         # Add history
         db.add(ActivityHistory(
             activity_id=activity.id,
-            actor_name=payload.reviewer_name,
+            actor_id=actor.profile.id, actor_name=actor.name,
             from_status=old_status,
             to_status=ActivityStatus.APPROVED.value,
             action_note=f"Approved: {note}"
@@ -340,7 +381,7 @@ async def review_activity(activity_id: str, payload: ActivityReviewDecision, db:
         
         db.add(ActivityHistory(
             activity_id=activity.id,
-            actor_name=payload.reviewer_name,
+            actor_id=actor.profile.id, actor_name=actor.name,
             from_status=old_status,
             to_status=ActivityStatus.REJECTED.value,
             action_note=f"Rejected: {payload.rejection_reason}"
@@ -355,7 +396,7 @@ async def review_activity(activity_id: str, payload: ActivityReviewDecision, db:
 
 
 @router.post("/{activity_id}/comments", response_model=ActivityCommentResponse)
-async def add_comment(activity_id: str, payload: ActivityCommentCreate, db: AsyncSession = Depends(get_db)):
+async def add_comment(activity_id: str, payload: ActivityCommentCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     activity = result.scalar_one_or_none()
     if not activity:
@@ -363,7 +404,7 @@ async def add_comment(activity_id: str, payload: ActivityCommentCreate, db: Asyn
 
     comment = ActivityComment(
         activity_id=activity_id,
-        author_name=payload.author_name,
+        author_id=actor.profile.id, author_name=actor.name,
         comment=payload.comment,
         is_internal=payload.is_internal
     )

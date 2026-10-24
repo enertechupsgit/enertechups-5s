@@ -142,6 +142,24 @@ class Profile(Base):
 
 
 # 5S Activity Engine
+class WorkspaceSession(Base):
+    __tablename__ = "workspace_sessions"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    profile_id = Column(String(36), ForeignKey("profiles.id"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AccessEvent(Base):
+    __tablename__ = "access_events"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), nullable=True, index=True)
+    action = Column(String(100), nullable=False)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Activity(Base):
     __tablename__ = "activities"
 
@@ -274,6 +292,30 @@ class AuditChecklist(Base):
     version = Column(Integer, default=1)
     items = Column(JSON, nullable=False)  # [{ id, category, question, max_score, weight }]
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    plant_id = Column(String(36), ForeignKey("plants.id"), nullable=False, index=True)
+    zone_id = Column(String(36), ForeignKey("zones.id"), nullable=True)
+    parent_id = Column(String(36), ForeignKey("assets.id"), nullable=True)
+    name = Column(String(255), nullable=False)
+    code = Column(String(100), unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String(50), nullable=False, default="online")
+    manufacturer = Column(String(255), nullable=True)
+    model = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AssetStatusEvent(Base):
+    __tablename__ = "asset_status_events"
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    asset_id = Column(String(36), ForeignKey("assets.id"), nullable=False, index=True)
+    status = Column(String(50), nullable=False)
+    note = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -57,16 +57,16 @@ Interactive API documentation will be available at:
 ```bash
 cd apps/web
 
-# Install dependencies
-npm install
+# Install dependencies (the current UI uses pnpm and Tailwind CSS 4)
+pnpm install
 
 # Run frontend development server (runs on http://127.0.0.1:5173)
-npm run dev
+pnpm run dev
 ```
 
 Build for production:
 ```bash
-npm run build
+pnpm run build
 ```
 
 ---

@@ -177,7 +177,9 @@ export interface Zone {
 }
 
 export interface ZoneCreatePayload {
-  dept_id: string;
+  plant_id?: string;
+  dept_name?: string;
+  dept_id?: string;
   name: string;
   code: string;
   description?: string;

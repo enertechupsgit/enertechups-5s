@@ -18,11 +18,13 @@ from app.schemas.schemas import (
     DepartmentResponse
 )
 
+from app.core.access import Actor, get_actor, scope_query
+
 router = APIRouter(prefix="/plants", tags=["Plants & Command Center"])
 
 @router.get("", response_model=List[PlantResponse])
-async def list_plants(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Plant).where(Plant.is_active == True))
+async def list_plants(actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Plant).where(Plant.is_active == True, Plant.id.in_(actor.plant_ids)))
     plants = result.scalars().all()
     
     # Eager load departments and zones
@@ -32,8 +34,10 @@ async def list_plants(db: AsyncSession = Depends(get_db)):
         depts = dept_result.scalars().all()
         dept_list = []
         for d in depts:
-            zone_result = await db.execute(select(Zone).where(Zone.dept_id == d.id))
+            zone_result = await db.execute(select(Zone).where(Zone.dept_id == d.id, Zone.id == actor.profile.assigned_zone_id if actor.limited else True))
             zones = zone_result.scalars().all()
+            if actor.limited and not zones:
+                continue
             dept_list.append({
                 "id": d.id,
                 "plant_id": d.plant_id,
@@ -53,14 +57,14 @@ async def list_plants(db: AsyncSession = Depends(get_db)):
     return plant_responses
 
 @router.get("/{plant_id}/dashboard", response_model=DashboardStatsResponse)
-async def get_plant_dashboard(plant_id: str, db: AsyncSession = Depends(get_db)):
+async def get_plant_dashboard(plant_id: str, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     plant_result = await db.execute(select(Plant).where(Plant.id == plant_id))
     plant = plant_result.scalar_one_or_none()
     if not plant:
         raise HTTPException(status_code=404, detail="Plant not found")
 
     # Activities query
-    act_result = await db.execute(select(Activity).where(Activity.plant_id == plant_id))
+    act_result = await db.execute(scope_query(select(Activity).where(Activity.plant_id == plant_id), Activity, actor))
     activities = act_result.scalars().all()
 
     total_activities = len(activities)
@@ -78,7 +82,7 @@ async def get_plant_dashboard(plant_id: str, db: AsyncSession = Depends(get_db))
         category_counts[a.category] = category_counts.get(a.category, 0) + 1
 
     # Red tags query
-    rt_result = await db.execute(select(RedTag).where(RedTag.plant_id == plant_id, RedTag.is_closed == False))
+    rt_result = await db.execute(scope_query(select(RedTag).where(RedTag.plant_id == plant_id, RedTag.is_closed == False), RedTag, actor))
     open_red_tags = rt_result.scalars().all()
     red_tag_count = len(open_red_tags)
     
@@ -94,7 +98,7 @@ async def get_plant_dashboard(plant_id: str, db: AsyncSession = Depends(get_db))
     zone_metrics = []
     
     for dept in departments:
-        zones_res = await db.execute(select(Zone).where(Zone.dept_id == dept.id))
+        zones_res = await db.execute(select(Zone).where(Zone.dept_id == dept.id, Zone.id == actor.profile.assigned_zone_id if actor.limited else True))
         zones = zones_res.scalars().all()
         for z in zones:
             z_acts = [a for a in activities if a.zone_id == z.id]
@@ -113,7 +117,7 @@ async def get_plant_dashboard(plant_id: str, db: AsyncSession = Depends(get_db))
             })
 
     # Latest audit score
-    aud_result = await db.execute(select(AuditRun).where(AuditRun.plant_id == plant_id).order_by(AuditRun.conducted_at.desc()))
+    aud_result = await db.execute(scope_query(select(AuditRun).where(AuditRun.plant_id == plant_id).order_by(AuditRun.conducted_at.desc()), AuditRun, actor))
     latest_audits = aud_result.scalars().all()
     monthly_score = latest_audits[0].score_percentage if latest_audits else 0.0
 
@@ -148,7 +152,7 @@ async def get_plant_dashboard(plant_id: str, db: AsyncSession = Depends(get_db))
 
 # Department & Section Management (Add, Delete Departments)
 @router.post("/departments", response_model=DepartmentResponse)
-async def create_department(payload: DepartmentCreate, db: AsyncSession = Depends(get_db)):
+async def create_department(payload: DepartmentCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management creates a new plant section or department."""
     plant_res = await db.execute(select(Plant).where(Plant.id == payload.plant_id))
     if not plant_res.scalar_one_or_none():
@@ -172,28 +176,31 @@ async def create_department(payload: DepartmentCreate, db: AsyncSession = Depend
 
 
 @router.get("/departments", response_model=List[DepartmentResponse])
-async def list_departments(plant_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def list_departments(plant_id: Optional[str] = None, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """List all plant departments/sections with their zones."""
-    query = select(Department)
+    query = select(Department).where(Department.plant_id.in_(actor.plant_ids))
     if plant_id:
         query = query.where(Department.plant_id == plant_id)
     depts = (await db.execute(query)).scalars().all()
     
     dept_responses = []
     for d in depts:
-        z_res = await db.execute(select(Zone).where(Zone.dept_id == d.id))
+        z_res = await db.execute(select(Zone).where(Zone.dept_id == d.id, Zone.id == actor.profile.assigned_zone_id if actor.limited else True))
+        scoped_zones = z_res.scalars().all()
+        if actor.limited and not scoped_zones:
+            continue
         dept_responses.append({
             "id": d.id,
             "plant_id": d.plant_id,
             "name": d.name,
             "code": d.code,
-            "zones": z_res.scalars().all()
+            "zones": scoped_zones
         })
     return dept_responses
 
 
 @router.put("/departments/{dept_id}", response_model=DepartmentResponse)
-async def update_department(dept_id: str, payload: DepartmentUpdate, db: AsyncSession = Depends(get_db)):
+async def update_department(dept_id: str, payload: DepartmentUpdate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management updates a department/section name or code."""
     dept_res = await db.execute(select(Department).where(Department.id == dept_id))
     dept = dept_res.scalar_one_or_none()
@@ -207,7 +214,7 @@ async def update_department(dept_id: str, payload: DepartmentUpdate, db: AsyncSe
         
     await db.commit()
     await db.refresh(dept)
-    z_res = await db.execute(select(Zone).where(Zone.dept_id == dept.id))
+    z_res = await db.execute(select(Zone).where(Zone.dept_id == dept.id, Zone.id == actor.profile.assigned_zone_id if actor.limited else True))
     return {
         "id": dept.id,
         "plant_id": dept.plant_id,
@@ -218,7 +225,7 @@ async def update_department(dept_id: str, payload: DepartmentUpdate, db: AsyncSe
 
 
 @router.delete("/departments/{dept_id}")
-async def delete_department(dept_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_department(dept_id: str, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management deletes a department and its workstations."""
     dept_res = await db.execute(select(Department).where(Department.id == dept_id))
     dept = dept_res.scalar_one_or_none()
@@ -238,9 +245,11 @@ async def delete_department(dept_id: str, db: AsyncSession = Depends(get_db)):
 
 # Zone CRUD Management (Add, Edit, Delete Zones)
 @router.get("/zones", response_model=List[ZoneResponse])
-async def list_zones(dept_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def list_zones(dept_id: Optional[str] = None, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """List all factory zones, optionally filtered by department."""
-    query = select(Zone)
+    query = select(Zone).join(Department).where(Department.plant_id.in_(actor.plant_ids))
+    if actor.limited:
+        query = query.where(Zone.id == actor.profile.assigned_zone_id) if actor.profile.assigned_zone_id else query.where(False)
     if dept_id:
         query = query.where(Zone.dept_id == dept_id)
     result = await db.execute(query)
@@ -248,16 +257,16 @@ async def list_zones(dept_id: Optional[str] = None, db: AsyncSession = Depends(g
 
 
 @router.post("/zones", response_model=ZoneResponse)
-async def create_zone(payload: ZoneCreate, db: AsyncSession = Depends(get_db)):
+async def create_zone(payload: ZoneCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management adds a new workstation or zone to a department/section."""
     target_dept_id = payload.dept_id
 
     # If dept_name is provided or dept_id is missing, find or auto-create the department
     if not target_dept_id and payload.dept_name:
-        plant_res = await db.execute(select(Plant).where(Plant.is_active == True))
+        plant_res = await db.execute(select(Plant).where(Plant.is_active == True, Plant.id.in_(actor.plant_ids), Plant.id == payload.plant_id if payload.plant_id else False))
         plant = plant_res.scalars().first()
         if not plant:
-            raise HTTPException(status_code=400, detail="No active plant found to attach section")
+            raise HTTPException(status_code=400, detail="Select an active plant when creating a department")
             
         clean_dept_name = payload.dept_name.strip()
         dept_match = await db.execute(
@@ -295,7 +304,7 @@ async def create_zone(payload: ZoneCreate, db: AsyncSession = Depends(get_db)):
         code=payload.code,
         description=payload.description,
         target_score=payload.target_score,
-        current_score=payload.current_score or 85.0,
+        current_score=payload.current_score if payload.current_score is not None else 0.0,
         leader_id=payload.leader_id,
         leader_name=payload.leader_name
     )
@@ -306,7 +315,7 @@ async def create_zone(payload: ZoneCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/zones/{zone_id}", response_model=ZoneResponse)
-async def update_zone(zone_id: str, payload: ZoneUpdate, db: AsyncSession = Depends(get_db)):
+async def update_zone(zone_id: str, payload: ZoneUpdate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management updates a zone or its leader."""
     res = await db.execute(select(Zone).where(Zone.id == zone_id))
     zone = res.scalar_one_or_none()
@@ -336,7 +345,7 @@ async def update_zone(zone_id: str, payload: ZoneUpdate, db: AsyncSession = Depe
 
 
 @router.delete("/zones/{zone_id}")
-async def delete_zone(zone_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_zone(zone_id: str, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     """Management deletes a zone and cleans up references."""
     res = await db.execute(select(Zone).where(Zone.id == zone_id))
     zone = res.scalar_one_or_none()

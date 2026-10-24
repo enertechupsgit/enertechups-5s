@@ -12,10 +12,12 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from app.core.database import get_db
 from app.models.models import Activity, Plant, Zone, EvidenceMedia, Profile
 
+from app.core.access import Actor, get_actor, scope_query
+
 router = APIRouter(prefix="/reports", tags=["PDF Reports"])
 
 @router.get("/activity/{activity_id}/pdf")
-async def generate_activity_pdf(activity_id: str, db: AsyncSession = Depends(get_db)):
+async def generate_activity_pdf(activity_id: str, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Activity).where(Activity.id == activity_id))
     act = result.scalar_one_or_none()
     if not act:

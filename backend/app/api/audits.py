@@ -8,11 +8,13 @@ from app.core.database import get_db
 from app.models.models import AuditRun, Zone
 from app.schemas.schemas import AuditRunCreate, AuditRunResponse
 
+from app.core.access import Actor, get_actor, scope_query
+
 router = APIRouter(prefix="/audits", tags=["5S Audits & Scoring"])
 
 @router.get("", response_model=List[AuditRunResponse])
-async def list_audits(plant_id: Optional[str] = None, zone_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    query = select(AuditRun).order_by(desc(AuditRun.conducted_at))
+async def list_audits(plant_id: Optional[str] = None, zone_id: Optional[str] = None, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
+    query = scope_query(select(AuditRun).order_by(desc(AuditRun.conducted_at)), AuditRun, actor)
     if plant_id:
         query = query.where(AuditRun.plant_id == plant_id)
     if zone_id:
@@ -23,7 +25,12 @@ async def list_audits(plant_id: Optional[str] = None, zone_id: Optional[str] = N
     return audits
 
 @router.post("", response_model=AuditRunResponse)
-async def submit_audit(payload: AuditRunCreate, db: AsyncSession = Depends(get_db)):
+async def submit_audit(payload: AuditRunCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
+    from app.models.models import Department
+    zone = await db.get(Zone, payload.zone_id)
+    department = await db.get(Department, zone.dept_id) if zone else None
+    if not zone or not department or department.plant_id != payload.plant_id:
+        raise HTTPException(422, "Select a zone belonging to this plant")
     # Calculate composite score percentage
     scores = [
         payload.sort_score,
@@ -37,8 +44,9 @@ async def submit_audit(payload: AuditRunCreate, db: AsyncSession = Depends(get_d
     audit = AuditRun(
         plant_id=payload.plant_id,
         zone_id=payload.zone_id,
-        zone_name=payload.zone_name,
-        auditor_name=payload.auditor_name,
+        zone_name=zone.name,
+        auditor_id=actor.profile.id,
+        auditor_name=actor.name,
         score_percentage=percentage,
         sort_score=payload.sort_score,
         set_in_order_score=payload.set_in_order_score,

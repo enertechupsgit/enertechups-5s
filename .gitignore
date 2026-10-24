@@ -44,3 +44,6 @@ Thumbs.db
 
 # Local temporary files
 powershell.cmd
+.pnpm-store/
+*.pid
+artifacts/

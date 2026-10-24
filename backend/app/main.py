@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -10,14 +10,23 @@ from app.api.audits import router as audits_router
 from app.api.reports import router as reports_router
 from app.api.management import router as management_router
 from app.seed import seed_data
+from app.api.assets import router as assets_router
+import os
+from app.core.access import enforce_access
+from app.api.auth import router as auth_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Auto-initialize and seed database on startup
     try:
         await seed_data()
+        if os.getenv("LOCAL_DEMO") == "1":
+            from app.sample_data import seed_sample_workspace
+            await seed_sample_workspace()
+            from app.sample_data import ensure_sample_identities
+            await ensure_sample_identities()
     except Exception as e:
-        print(f"Startup seed notice: {e}")
+        raise RuntimeError("Workspace database initialization failed") from e
     yield
 
 app = FastAPI(
@@ -37,12 +46,9 @@ app.add_middleware(
 )
 
 # Register Routers
-app.include_router(plants_router, prefix=settings.API_V1_PREFIX)
-app.include_router(activities_router, prefix=settings.API_V1_PREFIX)
-app.include_router(red_tags_router, prefix=settings.API_V1_PREFIX)
-app.include_router(audits_router, prefix=settings.API_V1_PREFIX)
-app.include_router(reports_router, prefix=settings.API_V1_PREFIX)
-app.include_router(management_router, prefix=settings.API_V1_PREFIX)
+for protected_router in [plants_router, activities_router, red_tags_router, audits_router, reports_router, management_router, assets_router]:
+    app.include_router(protected_router, prefix=settings.API_V1_PREFIX, dependencies=[Depends(enforce_access)])
+app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/")
 async def root():
@@ -55,7 +61,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "workspace": "sample" if os.getenv("LOCAL_DEMO") == "1" else "live", "authentication": "session", "local_role_switch": os.getenv("LOCAL_DEMO") == "1"}
 
 if __name__ == "__main__":
     import uvicorn

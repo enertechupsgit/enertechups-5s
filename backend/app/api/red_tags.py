@@ -9,6 +9,8 @@ from app.core.database import get_db
 from app.models.models import RedTag
 from app.schemas.schemas import RedTagCreate, RedTagDispositionUpdate, RedTagResponse
 
+from app.core.access import Actor, get_actor, scope_query
+
 router = APIRouter(prefix="/redtags", tags=["Red-Tag Management"])
 
 def build_red_tag_dict(rt: RedTag) -> dict:
@@ -39,9 +41,9 @@ async def list_red_tags(
     plant_id: Optional[str] = None,
     zone_id: Optional[str] = None,
     is_closed: Optional[bool] = None,
-    db: AsyncSession = Depends(get_db)
+    actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)
 ):
-    query = select(RedTag).order_by(desc(RedTag.created_at))
+    query = scope_query(select(RedTag).order_by(desc(RedTag.created_at)), RedTag, actor)
     if plant_id:
         query = query.where(RedTag.plant_id == plant_id)
     if zone_id:
@@ -54,7 +56,7 @@ async def list_red_tags(
     return [build_red_tag_dict(t) for t in tags]
 
 @router.post("", response_model=RedTagResponse)
-async def create_red_tag(payload: RedTagCreate, db: AsyncSession = Depends(get_db)):
+async def create_red_tag(payload: RedTagCreate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     year = datetime.utcnow().year
     rand_seq = random.randint(100, 999)
     tag_num = f"RT-{year}-{rand_seq}"
@@ -63,7 +65,8 @@ async def create_red_tag(payload: RedTagCreate, db: AsyncSession = Depends(get_d
         tag_number=tag_num,
         plant_id=payload.plant_id,
         zone_id=payload.zone_id,
-        logged_by_name=payload.logged_by_name,
+        logged_by=actor.profile.id,
+        logged_by_name=actor.name,
         item_name=payload.item_name,
         item_category=payload.item_category,
         quantity=payload.quantity,
@@ -78,12 +81,13 @@ async def create_red_tag(payload: RedTagCreate, db: AsyncSession = Depends(get_d
     return build_red_tag_dict(rt)
 
 @router.put("/{tag_id}/disposition", response_model=RedTagResponse)
-async def update_disposition(tag_id: str, payload: RedTagDispositionUpdate, db: AsyncSession = Depends(get_db)):
+async def update_disposition(tag_id: str, payload: RedTagDispositionUpdate, actor: Actor = Depends(get_actor), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(RedTag).where(RedTag.id == tag_id))
     rt = result.scalar_one_or_none()
     if not rt:
         raise HTTPException(status_code=404, detail="Red-Tag item not found")
 
+    rt.disposition_by = actor.profile.id
     rt.disposition = payload.disposition
     rt.disposition_notes = payload.disposition_notes
     rt.disposition_date = datetime.utcnow()

@@ -11,6 +11,7 @@ class ZoneBase(BaseModel):
     target_score: float = 90.0
 
 class ZoneCreate(ZoneBase):
+    plant_id: Optional[str] = None
     dept_id: Optional[str] = None
     dept_name: Optional[str] = None
     current_score: Optional[float] = 85.0
@@ -328,11 +329,11 @@ class AuditRunCreate(BaseModel):
     zone_id: str
     zone_name: str
     auditor_name: str = "Lead Auditor"
-    sort_score: float
-    set_in_order_score: float
-    shine_score: float
-    standardize_score: float
-    sustain_score: float
+    sort_score: float = Field(ge=0, le=100)
+    set_in_order_score: float = Field(ge=0, le=100)
+    shine_score: float = Field(ge=0, le=100)
+    standardize_score: float = Field(ge=0, le=100)
+    sustain_score: float = Field(ge=0, le=100)
     notes: Optional[str] = None
 
 class AuditRunResponse(BaseModel):

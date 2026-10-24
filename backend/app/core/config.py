@@ -3,7 +3,7 @@ from typing import List
 import os
 
 class Settings(BaseSettings):
-    APP_NAME: str = "Digi5s Enterprise API"
+    APP_NAME: str = "Enertech 5S Enterprise API"
     VERSION: str = "1.0.0"
     API_V1_PREFIX: str = "/api/v1"
     
@@ -19,8 +19,7 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:3000",
         "http://localhost:8081",
-        "http://127.0.0.1:5173",
-        "*"
+        "http://127.0.0.1:5173"
     ]
     
     # Supabase / S3 (optional if using cloud storage)
