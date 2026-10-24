@@ -227,5 +227,47 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await self.client.post("auth/login",json=login)).status_code,429)
         _attempts.clear()
 
+    async def test_six_isolated_test_accounts_and_expiry(self):
+        from app.api.auth import _attempts
+        from app.models.models import TestAccountMembership
+        from datetime import datetime, timedelta
+        _attempts.clear()
+        self.assertEqual((await self.client.post("/auth/test-accounts",json={})).status_code,403)
+        values={"LOCAL_DEMO":"0", "BOOTSTRAP_TOKEN":"isolated-test-owner-token-123456789", "BOOTSTRAP_ADMIN_EMAIL":"marketing@enertechups.com"}
+        with patch.dict(os.environ,values):
+            setup=await self.client.post("/auth/setup",json={"email":"marketing@enertechups.com","password":"Isolated-Owner-Password-123!","setup_token":values["BOOTSTRAP_TOKEN"]})
+            self.assertEqual(setup.status_code,200,setup.text)
+            response=await self.client.post("/auth/test-accounts",json={})
+            self.assertEqual(response.status_code,200,response.text)
+            result=response.json()
+            self.assertEqual(len(result["accounts"]),6)
+            self.assertEqual(len({a["password"] for a in result["accounts"]}),6)
+            self.assertEqual((await self.client.post("/auth/test-accounts",json={})).status_code,409)
+            for account in result["accounts"]:
+                async with AsyncClient(transport=ASGITransport(app=app),base_url="http://test/api/v1",headers={"X-Workspace-Request":"1"}) as tester:
+                    login=await tester.post("/auth/login",json={"email":account["email"],"password":account["password"]})
+                    self.assertEqual(login.status_code,200,login.text)
+                    self.assertEqual(login.json()["role"],account["role"])
+                    plants=(await tester.get("/plants")).json()
+                    self.assertEqual([p["id"] for p in plants],[result["plant_id"]])
+                    self.assertEqual((await tester.get("/activities",params={"plant_id":self.plant_id})).status_code,403)
+                    if account["role"] in {"director","hr"}:
+                        self.assertEqual((await tester.post("/audits",json={})).status_code,403)
+                        self.assertEqual((await tester.post("/activities",json={})).status_code,403)
+                    if account["role"]=="zonal_leader":
+                        tasks=(await tester.get("/activities")).json()
+                        self.assertEqual(len(tasks),1)
+                        self.assertEqual(tasks[0]["assigned_to"],login.json()["id"])
+                    if account["role"]=="hr":
+                        self.assertEqual((await tester.get("/management/zonal-leaders")).status_code,200)
+                    self.assertEqual((await tester.post("/auth/test-accounts",json={})).status_code,403)
+                    async with self.sessions() as session:
+                        membership=await session.get(TestAccountMembership,login.json()["id"])
+                        membership.expires_at=datetime.utcnow()-timedelta(seconds=1)
+                        await session.commit()
+                    self.assertEqual((await tester.get("/auth/me")).status_code,401)
+                    self.assertEqual((await tester.post("/auth/login",json={"email":account["email"],"password":account["password"]})).status_code,401)
+        _attempts.clear()
+
 if __name__ == "__main__":
     unittest.main()

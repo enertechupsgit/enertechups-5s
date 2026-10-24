@@ -22,7 +22,7 @@ async def list_zonal_leaders(plant_id: Optional[str] = None, actor: Actor = Depe
     """List all active Zonal Leaders with their assigned zone and live task statistics."""
     query = select(Profile).where(Profile.plant_id.in_(actor.plant_ids),
         Profile.is_active == True,
-        Profile.role.in_([UserRole.ZONAL_LEADER.value, UserRole.OPERATOR.value, UserRole.SUPERVISOR.value, UserRole.AUDITOR.value, UserRole.MANAGEMENT.value])
+        Profile.role.in_([UserRole.ZONAL_LEADER.value, UserRole.OPERATOR.value, UserRole.SUPERVISOR.value, UserRole.AUDITOR.value, UserRole.MANAGEMENT.value, "director", "hr", "admin"])
     )
     if plant_id:
         query = query.where(Profile.plant_id == plant_id)

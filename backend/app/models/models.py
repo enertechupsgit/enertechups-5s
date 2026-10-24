@@ -167,6 +167,12 @@ class AccessEvent(Base):
     detail = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class TestAccountMembership(Base):
+    __tablename__ = "test_account_memberships"
+    profile_id = Column(String(36), ForeignKey("profiles.id"), primary_key=True)
+    owner_id = Column(String(36), ForeignKey("profiles.id"), nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+
 
 class Activity(Base):
     __tablename__ = "activities"

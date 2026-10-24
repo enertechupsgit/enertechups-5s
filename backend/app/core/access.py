@@ -15,6 +15,8 @@ PERMISSIONS = {
     "auditor": READ | {"audit.execute", "work.comment", "redtag.create"},
     "zonal_leader": READ | {"work.create", "work.execute", "work.comment", "redtag.create"},
 }
+PERMISSIONS["hr"] = READ | {"people.read", "people.manage"}
+PERMISSIONS["admin"] = set(PERMISSIONS["supervisor"])
 ROLE_NAMES = {"management": "director", "plant_manager": "supervisor", "super_admin": "supervisor", "operator": "zonal_leader"}
 
 @dataclass
@@ -69,6 +71,10 @@ async def get_actor(request: Request, db: AsyncSession = Depends(get_db)) -> Act
         raise HTTPException(401, "Sign in to access the workspace")
     session = (await db.execute(select(WorkspaceSession).where(WorkspaceSession.token_hash == hashlib.sha256(token.encode()).hexdigest(), WorkspaceSession.expires_at > datetime.utcnow()))).scalar_one_or_none()
     profile = await db.get(Profile, session.profile_id) if session else None
+    from app.models.models import TestAccountMembership
+    test_member = await db.get(TestAccountMembership, profile.id) if profile else None
+    if test_member and test_member.expires_at <= datetime.utcnow():
+        raise HTTPException(401, "This testing account has expired")
     if not profile or not profile.is_active:
         raise HTTPException(401, "Your session has expired or access was revoked")
     role = ROLE_NAMES.get(profile.role, profile.role)

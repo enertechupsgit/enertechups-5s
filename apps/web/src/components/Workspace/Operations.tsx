@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { TestAccounts } from "./TestAccounts";
 import { Plus, Search, MapPin, ArrowRight } from "lucide-react";
 import type { AuditRun, Plant, RedTag, ZonalLeader } from "../../types";
 import {
@@ -711,6 +712,7 @@ export function PeopleWorkspace({
           </table>
         </div>
       </section>
+      <TestAccounts />
       {adding && (
         <Dialog
           title="Add an operational team member"

@@ -73,7 +73,7 @@ export interface WorkspaceIdentity {
   first_name: string;
   last_name: string;
   email: string;
-  role: "director" | "supervisor" | "auditor" | "zonal_leader";
+  role: "director" | "supervisor" | "auditor" | "zonal_leader" | "hr" | "admin";
   plant_id: string;
   zone_id: string | null;
   zone_name: string | null;

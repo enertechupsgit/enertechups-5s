@@ -3,8 +3,13 @@ export const roleLabels: Record<string, string> = {
   supervisor: "Supervisor",
   auditor: "Auditor",
   zonal_leader: "Zonal leader",
+  hr: "HR",
+  admin: "Admin",
 };
 export const roleDescriptions: Record<string, string> = {
+  hr: "Manage people and zone assignments. Operational records are read-only.",
+  admin:
+    "Manage the assigned plant, people, locations, assets and operational workflows.",
   director:
     "Plant-wide oversight, trends, people visibility, and reporting. Operational records are read-only.",
   supervisor:
