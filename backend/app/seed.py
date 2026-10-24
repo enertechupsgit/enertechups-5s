@@ -19,14 +19,14 @@ async def seed_data():
         print("Initializing clean enterprise baseline for Enertech 5S...")
 
         # 1. Organization
-        org = Organization(name="Enertech Industrial Systems Ltd.", slug="enertech-systems")
+        org = Organization(name="EnerTech UPS Pvt. Ltd.", slug="enertech-ups")
         session.add(org)
         await session.flush()
 
         # 2. Plant
         plant = Plant(
             org_id=org.id,
-            name="Enertech Manufacturing Facility - Unit 1",
+            name="EnerTech UPS - Unit 1",
             code="ET-01",
             location="Enertech Industrial Complex",
             is_active=True

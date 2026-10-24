@@ -12,6 +12,11 @@ from app.api.management import router as management_router
 from app.seed import seed_data
 from app.api.assets import router as assets_router
 import os
+from pathlib import Path
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from app.core.database import AsyncSessionLocal
 from app.core.access import enforce_access
 from app.api.auth import router as auth_router
 
@@ -19,6 +24,13 @@ from app.api.auth import router as auth_router
 async def lifespan(app: FastAPI):
     # Auto-initialize and seed database on startup
     try:
+        if os.getenv("APP_ENV") == "production":
+            if not settings.DATABASE_URL.startswith(("postgres://", "postgresql://", "postgresql+asyncpg://")):
+                raise RuntimeError("Production requires persistent PostgreSQL DATABASE_URL")
+            if os.getenv("LOCAL_DEMO") == "1":
+                raise RuntimeError("Local sample switching cannot be enabled in production")
+            if not os.getenv("BOOTSTRAP_TOKEN"):
+                raise RuntimeError("Configure BOOTSTRAP_TOKEN for protected administrator setup")
         await seed_data()
         if os.getenv("LOCAL_DEMO") == "1":
             from app.sample_data import seed_sample_workspace
@@ -52,6 +64,9 @@ app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/")
 async def root():
+    frontend = Path(os.getenv("FRONTEND_DIST", ""))
+    if (frontend / "index.html").is_file():
+        return FileResponse(frontend / "index.html", headers={"Cache-Control": "no-cache"})
     return {
         "platform": settings.APP_NAME,
         "version": settings.VERSION,
@@ -61,7 +76,14 @@ async def root():
 
 @app.get("/health")
 async def health_check():
+    async with AsyncSessionLocal() as db:
+        await db.execute(text("SELECT 1"))
     return {"status": "healthy", "workspace": "sample" if os.getenv("LOCAL_DEMO") == "1" else "live", "authentication": "session", "local_role_switch": os.getenv("LOCAL_DEMO") == "1"}
+
+frontend = Path(os.getenv("FRONTEND_DIST", ""))
+for folder in ("assets", "brand"):
+    if (frontend / folder).is_dir():
+        app.mount(f"/{folder}", StaticFiles(directory=frontend / folder), name=f"frontend-{folder}")
 
 if __name__ == "__main__":
     import uvicorn

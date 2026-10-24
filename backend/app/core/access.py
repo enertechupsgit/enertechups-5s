@@ -84,6 +84,9 @@ async def get_actor(request: Request, db: AsyncSession = Depends(get_db)) -> Act
 
 def validate_origin(request):
     origin = request.headers.get("origin")
+    import os
+    if origin and origin == os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/"):
+        return
     if origin and origin not in {"http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8000", "http://localhost:8000"}:
         from app.core.config import settings
         if origin not in [value for value in settings.CORS_ORIGINS if value != "*"]:

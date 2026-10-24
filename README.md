@@ -1,6 +1,6 @@
 # Enertech 5S - Enterprise 5S Management System
 
-An industrial-grade 5S Activity Management, Before/After Evidence Tracking, and Plant Zone Auditing Platform built for **Enertech Industrial Systems Ltd.**
+An industrial-grade 5S Activity Management, Before/After Evidence Tracking, and Plant Zone Auditing Platform built for **EnerTech UPS Pvt. Ltd.**
 
 ---
 
@@ -72,6 +72,10 @@ pnpm run build
 ---
 
 ## 🏭 Organization & Plant Configuration
-- **Company**: Enertech Industrial Systems Ltd.
-- **Facility**: Enertech Manufacturing Facility - Unit 1 (ET-01)
+- **Company**: EnerTech UPS Pvt. Ltd.
+- **Facility**: EnerTech UPS - Unit 1 (ET-01)
 - **Role**: Plant Management & Operations Oversight
+
+## Render deployment
+
+Deploy frontend and backend together using the root `render.yaml` Blueprint and `Dockerfile`. See [the Render deployment guide](docs/RENDER-DEPLOYMENT.md) for PostgreSQL provisioning and first-administrator setup. Local sample role switching is disabled online.

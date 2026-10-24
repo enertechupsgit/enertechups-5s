@@ -190,5 +190,42 @@ class WorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get("/plants")).status_code,401)
         self.assertEqual((await self.client.get("/auth/me")).status_code,401)
 
+    async def test_hosted_setup_password_login_and_lockout(self):
+        from app.models.models import PasswordCredential
+        from app.core.passwords import verify_password
+        from app.api.auth import _attempts
+        _attempts.clear()
+        self.client.cookies.clear()
+        self.client.base_url = "https://test/api/v1/"
+        values={"LOCAL_DEMO":"0", "APP_ENV":"production", "BOOTSTRAP_TOKEN":"isolated-test-setup-token-123456789", "BOOTSTRAP_ADMIN_EMAIL":"marketing@enertechups.com", "RENDER_EXTERNAL_URL":"https://test"}
+        payload={"email":"marketing@enertechups.com", "password":"Isolated-Test-Password-123!", "setup_token":values["BOOTSTRAP_TOKEN"]}
+        with patch.dict(os.environ,values):
+            self.assertTrue((await self.client.get("auth/status")).json()["setup_required"])
+            self.assertEqual((await self.client.post("auth/setup",json={**payload,"setup_token":"wrong-token-123456"})).status_code,403)
+            self.assertEqual((await self.client.post("auth/setup",json=payload,headers={"Origin":"https://evil.example"})).status_code,403)
+            response=await self.client.post("auth/setup",json=payload,headers={"Origin":"https://test"})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertIn("Secure",response.headers["set-cookie"])
+            self.assertIn("HttpOnly",response.headers["set-cookie"])
+            owner=response.json()["id"]
+            self.assertEqual(response.json()["role"],"supervisor")
+            self.assertFalse((await self.client.get("auth/status")).json()["setup_required"])
+            self.assertEqual((await self.client.post("auth/setup",json=payload)).status_code,409)
+            self.assertEqual((await self.client.get("auth/local-identities")).status_code,403)
+            self.assertEqual((await self.client.get("plants")).status_code,200)
+            async with self.sessions() as session:
+                saved=await session.get(PasswordCredential,owner)
+                self.assertNotIn(payload["password"],saved.password_hash)
+                self.assertTrue(verify_password(payload["password"],saved.password_hash))
+            await self.client.post("auth/logout")
+            self.assertEqual((await self.client.get("auth/me")).status_code,401)
+            login={"email":payload["email"],"password":payload["password"]}
+            self.assertEqual((await self.client.post("auth/login",json=login)).status_code,200)
+            await self.client.post("auth/logout")
+            for _ in range(5):
+                self.assertEqual((await self.client.post("auth/login",json={**login,"password":"wrong"})).status_code,401)
+            self.assertEqual((await self.client.post("auth/login",json=login)).status_code,429)
+        _attempts.clear()
+
 if __name__ == "__main__":
     unittest.main()

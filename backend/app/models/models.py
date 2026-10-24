@@ -150,6 +150,14 @@ class WorkspaceSession(Base):
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class PasswordCredential(Base):
+    __tablename__ = "password_credentials"
+    profile_id = Column(String(36), ForeignKey("profiles.id"), primary_key=True)
+    password_hash = Column(Text, nullable=False)
+    failed_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class AccessEvent(Base):
     __tablename__ = "access_events"

@@ -51,6 +51,7 @@ import { Assets } from "./components/Workspace/Assets";
 import { Dialog, Empty } from "./components/Workspace/Shared";
 import { isComplete, pillars } from "./components/Workspace/utils";
 import { LeaderWorkspace } from "./components/Workspace/LeaderWorkspace";
+import { SignIn } from "./components/Workspace/SignIn";
 import { AccessPanel, RoleSwitcher } from "./components/Workspace/AccessPanel";
 import { roleLabels } from "./components/Workspace/accessDefinitions";
 import {
@@ -240,9 +241,7 @@ export default function App() {
             choices.find((p) => p.id === previous) ||
             choices.find((p) => p.role === "director");
           if (!initial)
-            throw new Error(
-              "Sign-in is required. Configure an identity provider for this non-preview server.",
-            );
+            throw new Error("Sign in with your workspace account to continue.");
           actor = await switchIdentity(initial.id);
         }
         if (!active) return;
@@ -414,7 +413,11 @@ export default function App() {
             alt="EnerTech — Answering All Power Needs"
           />
           <span className="eyebrow">5S OPERATIONS WORKSPACE</span>
-          <h1>Choose your workspace</h1>
+          <h1>
+            {identities.length
+              ? "Choose your workspace"
+              : "Welcome to EnerTech 5S"}
+          </h1>
           <p>
             {error ||
               "Sign in to access the permissions and records assigned to your role."}
@@ -427,6 +430,17 @@ export default function App() {
               <UserRoundCog />
               Choose sample account
             </button>
+          )}
+          {!identities.length && (
+            <SignIn
+              onSignedIn={(actor) => {
+                identityRef.current = actor;
+                setIdentity(actor);
+                setError("");
+                navigate("overview");
+                void loadData(actor);
+              }}
+            />
           )}
         </div>
         {roleDialog && (

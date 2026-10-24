@@ -1,0 +1,13 @@
+.git
+**/node_modules
+**/.venv
+**/__pycache__
+**/dist
+**/.env
+**/.env.*
+**/*.db
+**/*.sqlite*
+**/*.log
+artifacts
+.pnpm-store
+docs
